@@ -51,6 +51,9 @@ class Job(Base):
     category: Mapped[str] = mapped_column(String(64), default="Other", index=True)
     source_profile: Mapped[str] = mapped_column(String(128), default="config")
 
+    # v3: soft-delete / recycle bin
+    removed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+
 
 class ScrapeRun(Base):
     __tablename__ = "scrape_runs"

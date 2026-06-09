@@ -19,6 +19,46 @@ logger = logging.getLogger(__name__)
 
 _run_lock = threading.Lock()
 
+# US state abbreviations — their presence in a location string means the job is in the USA
+_US_STATES = {
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+    "VA","WA","WV","WI","WY","DC",
+}
+
+def _infer_country(location: str, fallback: str = "") -> str:
+    """Derive the real country from the location string, overriding the search-tagged country."""
+    if not location:
+        return fallback
+    loc = location.upper()
+    # Check each comma/dot/bullet segment for a US state code
+    import re as _re
+    for part in _re.split(r"[,·•\|]", loc):
+        if part.strip() in _US_STATES:
+            return "united states"
+    if any(x in loc for x in ("UNITED STATES", " USA", "U.S.A", " U.S.")):
+        return "united states"
+    if any(x in loc for x in ("UNITED KINGDOM", "ENGLAND", "SCOTLAND", "WALES", " UK")):
+        return "united kingdom"
+    if "AUSTRALIA" in loc:
+        return "australia"
+    if "CANADA" in loc:
+        return "canada"
+    if "GERMANY" in loc or "DEUTSCHLAND" in loc:
+        return "germany"
+    if "SINGAPORE" in loc:
+        return "singapore"
+    if "NEW ZEALAND" in loc:
+        return "new zealand"
+    if "SWEDEN" in loc:
+        return "sweden"
+    if "NORWAY" in loc:
+        return "norway"
+    if "NETHERLANDS" in loc or "HOLLAND" in loc:
+        return "netherlands"
+    return fallback
+
 
 def is_running() -> bool:
     return _run_lock.locked()
@@ -168,14 +208,17 @@ def _collect_profile(profile: SearchProfile, ats_jobs: List[NormalizedJob]) -> t
 
 def _upsert(session, job: NormalizedJob, now: datetime, category: str) -> bool:
     existing = session.query(Job).filter(Job.job_url == job.job_url).one_or_none()
+    if existing is not None and existing.removed:
+        return False  # user removed this listing — never re-surface it
     if existing is None:
+        real_country = _infer_country(job.location, job.country)
         session.add(Job(
             source=job.source,
             job_url=job.job_url,
             title=job.title,
             company=job.company,
             location=job.location,
-            country=job.country,
+            country=real_country,
             is_remote=job.is_remote,
             description=job.description,
             job_type=job.job_type,

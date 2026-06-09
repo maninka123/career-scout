@@ -55,17 +55,52 @@
     </ul>
   </div>
 
-  <!-- Salary Coverage -->
-  <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between">
-    <h2 class="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">Salary Coverage</h2>
-    <div class="flex items-end gap-3">
-      <div class="text-5xl font-bold text-emerald-600">{{ salary_pct }}%</div>
-      <div class="text-slate-400 text-sm mb-1">of jobs<br>have salary info</div>
+  <!-- Salary Breakdown -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-slate-600 uppercase tracking-wide">AUD Salary Breakdown</h2>
+      <span class="text-xs text-slate-400">~AUD converted</span>
     </div>
-    <div class="mt-4 bg-slate-100 rounded-full h-3">
-      <div class="bg-emerald-500 h-3 rounded-full" style="width: {{ salary_pct }}%"></div>
+
+    <!-- Coverage row -->
+    <div class="flex items-end gap-3 mb-2">
+      <div class="text-4xl font-bold text-emerald-600">{{ salary_pct }}%</div>
+      <div class="text-slate-400 text-sm mb-0.5">of jobs<br>have salary info</div>
     </div>
-    <div class="text-xs text-slate-400 mt-2">{{ with_salary }} / {{ total }} listings</div>
+    <div class="bg-slate-100 rounded-full h-2 mb-1">
+      <div class="bg-emerald-500 h-2 rounded-full" style="width: {{ salary_pct }}%"></div>
+    </div>
+    <div class="text-xs text-slate-400 mb-4">{{ with_salary }} / {{ total }} listings</div>
+
+    {% if salary_stats %}
+    <div class="border-t border-slate-100 pt-3 space-y-1.5">
+      <!-- Avg range -->
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs text-slate-500 font-medium">Typical range (AUD/yr)</span>
+        <span class="text-sm font-bold text-emerald-700">
+          ${{ "{:,.0f}".format(salary_stats.avg_min) }}
+          {% if salary_stats.avg_max %} – ${{ "{:,.0f}".format(salary_stats.avg_max) }}{% endif %}
+        </span>
+      </div>
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-3">
+        <span>Min seen: ${{ "{:,.0f}".format(salary_stats.floor) }}</span>
+        <span>Max seen: ${{ "{:,.0f}".format(salary_stats.ceiling) }}</span>
+      </div>
+      <!-- Bucket bars -->
+      <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Distribution · {{ salary_stats.count }} listings</div>
+      {% for label, count, bar_pct in salary_stats.buckets %}
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-500 w-24 shrink-0">{{ label }}</span>
+        <div class="flex-1 bg-slate-100 rounded-full h-2">
+          <div class="bg-emerald-400 h-2 rounded-full transition-all" style="width: {{ bar_pct }}%"></div>
+        </div>
+        <span class="text-xs text-slate-400 w-4 text-right shrink-0">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-xs text-slate-400 mt-2 border-t border-slate-100 pt-3">No annual salary data yet — scrape more jobs to see breakdown.</div>
+    {% endif %}
   </div>
 </div>
 
@@ -141,7 +176,7 @@ function doughnutChart(id, labels, data) {
     data: { labels, datasets: [{ data, backgroundColor: PALETTE, borderWidth: 2 }] },
     options: {
       responsive: true,
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } } }
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 14 }, boxWidth: 18, padding: 16 } } }
     }
   });
 }

@@ -63,8 +63,15 @@
 <!-- Job cards -->
 <div class="space-y-3">
   {% for job in jobs %}
+  {% set is_profile_match = job.source_profile in active_profile_names %}
   {% set status_colors = {'new': 'bg-indigo-50 text-indigo-700', 'saved': 'bg-amber-50 text-amber-700', 'applied': 'bg-emerald-50 text-emerald-700', 'hidden': 'bg-slate-100 text-slate-500'} %}
-  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 hover:shadow-md transition-shadow">
+  <div class="bg-white rounded-2xl border {% if is_profile_match %}border-indigo-200 shadow-md{% else %}border-slate-100 shadow-sm{% endif %} p-4 hover:shadow-md transition-shadow">
+    {% if is_profile_match %}
+    <div class="flex items-center gap-1.5 mb-2">
+      <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+      <span class="text-xs font-semibold text-indigo-600">{{ job.source_profile }}</span>
+    </div>
+    {% endif %}
     <div class="flex items-start justify-between gap-4">
       <div class="flex-1 min-w-0">
         <div class="flex flex-wrap items-center gap-2 mb-1">
@@ -103,6 +110,13 @@
             <button class="text-xs border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors {% if job.status == action %}bg-slate-900 text-white border-slate-900{% endif %}">{{ label }}</button>
           </form>
           {% endfor %}
+          <form action="/job/{{ job.id }}/remove" method="post">
+            <input type="hidden" name="redirect" value="{{ request.url }}">
+            <button type="submit" title="Move to bin"
+              class="text-xs border border-slate-200 px-2 py-1 rounded-lg hover:bg-red-50 hover:border-red-300 hover:text-red-500 text-slate-400 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </form>
         </div>
       </div>
     </div>
@@ -116,13 +130,51 @@
   {% endfor %}
 </div>
 
-{% if total > page_size %}
-{% set base = '?q=' ~ filters.q ~ '&source=' ~ filters.source ~ '&country=' ~ filters.country ~ '&status=' ~ filters.status ~ '&remote=' ~ filters.remote ~ '&category=' ~ filters.category ~ '&profile=' ~ filters.profile %}
-<div class="flex items-center justify-between mt-6 text-sm">
-  <div>{% if page > 1 %}<a class="text-indigo-600 hover:underline font-medium" href="{{ base }}&page={{ page-1 }}">← Previous</a>{% endif %}</div>
-  <span class="text-slate-400">Page {{ page }}</span>
-  <div>{% if has_next %}<a class="text-indigo-600 hover:underline font-medium" href="{{ base }}&page={{ page+1 }}">Next →</a>{% endif %}</div>
+{% set base = '?q=' ~ filters.q ~ '&source=' ~ filters.source ~ '&country=' ~ filters.country ~ '&status=' ~ filters.status ~ '&remote=' ~ filters.remote ~ '&category=' ~ filters.category ~ '&profile=' ~ filters.profile ~ '&per_page=' ~ filters.per_page %}
+<div class="flex items-center justify-between mt-6">
+
+  <!-- Per-page selector -->
+  <div class="flex items-center gap-2 text-sm text-slate-500">
+    <span>Show</span>
+    {% for n in [20, 40, 60, 100] %}
+    <a href="{{ base }}&page=1&per_page={{ n }}"
+       class="px-2.5 py-1 rounded-lg font-semibold border transition-colors
+              {% if filters.per_page == n %}bg-indigo-600 text-white border-indigo-600{% else %}bg-white text-slate-500 border-slate-200 hover:border-indigo-400 hover:text-indigo-600{% endif %}">
+      {{ n }}
+    </a>
+    {% endfor %}
+    <span>per page</span>
+  </div>
+
+  <!-- Page indicator + navigation -->
+  {% if total_pages > 1 %}
+  <div class="flex items-center gap-1">
+    {% if page > 1 %}
+    <a href="{{ base }}&page={{ page - 1 }}"
+       class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-400 hover:text-indigo-600 text-sm font-medium transition-colors">
+      ← Prev
+    </a>
+    {% else %}
+    <span class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-slate-300 text-sm font-medium cursor-not-allowed">← Prev</span>
+    {% endif %}
+
+    <div class="px-4 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg min-w-[96px] text-center">
+      {{ page }} <span class="font-normal text-slate-400">of</span> {{ total_pages }}
+    </div>
+
+    {% if has_next %}
+    <a href="{{ base }}&page={{ page + 1 }}"
+       class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-400 hover:text-indigo-600 text-sm font-medium transition-colors">
+      Next →
+    </a>
+    {% else %}
+    <span class="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-100 bg-slate-50 text-slate-300 text-sm font-medium cursor-not-allowed">Next →</span>
+    {% endif %}
+  </div>
+  {% else %}
+  <div></div>
+  {% endif %}
+
 </div>
-{% endif %}
 
 {% endblock %}

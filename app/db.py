@@ -52,6 +52,9 @@ def _migrate(conn) -> None:
     if "source_profile" not in jobs_cols:
         conn.execute(text("ALTER TABLE jobs ADD COLUMN source_profile TEXT DEFAULT 'config'"))
         logger.info("Migration: added jobs.source_profile")
+    if "removed" not in jobs_cols:
+        conn.execute(text("ALTER TABLE jobs ADD COLUMN removed INTEGER DEFAULT 0"))
+        logger.info("Migration: added jobs.removed")
 
     run_cols = _existing_columns(conn, "scrape_runs")
     if "profile_name" not in run_cols:
@@ -136,6 +139,20 @@ def _backfill_categories(conn) -> None:
         logger.info("Backfilled categories for %d jobs.", len(rows))
 
 
+def _backfill_countries(conn) -> None:
+    """Re-infer country from location for jobs where the search country tag is likely wrong."""
+    from app.pipeline import _infer_country
+    rows = conn.execute(text("SELECT id, location, country FROM jobs WHERE location != ''")).fetchall()
+    fixed = 0
+    for job_id, location, country in rows:
+        inferred = _infer_country(location or "", country or "")
+        if inferred and inferred != (country or ""):
+            conn.execute(text("UPDATE jobs SET country = :c WHERE id = :id"), {"c": inferred, "id": job_id})
+            fixed += 1
+    if fixed:
+        logger.info("Country backfill: corrected %d jobs.", fixed)
+
+
 def init_db() -> None:
     """Create tables, run migrations, seed defaults. Safe to call multiple times."""
     from app import models  # noqa: F401 — register on Base.metadata
@@ -147,3 +164,4 @@ def init_db() -> None:
         _seed_settings(conn)
         _seed_profiles(conn)
         _backfill_categories(conn)
+        _backfill_countries(conn)

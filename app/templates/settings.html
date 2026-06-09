@@ -29,23 +29,196 @@
     </div>
   </div>
 
-  <!-- ATS Company Boards -->
-  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-    <div class="text-sm font-semibold text-slate-700 mb-1">Company ATS Boards</div>
-    <div class="text-xs text-slate-400 mb-4">Add company tokens (one per line or comma-separated). These are the company slug in their public career page URL.</div>
+  <!-- Scrape a company directly -->
+  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5"
+    x-data="{
+      query: '',
+      loading: false,
+      result: null,
+      error: '',
+      progress: 0,
+      stepIdx: 0,
+      _timers: [],
+      steps: [
+        { label: 'Opening company website',     detail: 'Launching browser…' },
+        { label: 'Finding careers page',         detail: 'Following links and redirects…' },
+        { label: 'Extracting job listings',      detail: 'Reading job titles and locations…' },
+        { label: 'Saving to your Jobs list',     detail: 'Importing new listings…' }
+      ],
+      startProgress() {
+        this.progress = 2; this.stepIdx = 0;
+        const plan = [[2800,1,26],[7000,2,55],[13000,3,78]];
+        for (const [ms, si, pct] of plan) {
+          this._timers.push(setTimeout(() => {
+            if (this.loading) { this.stepIdx = si; this.progress = pct; }
+          }, ms));
+        }
+        const nudge = setInterval(() => {
+          if (!this.loading) { clearInterval(nudge); return; }
+          if (this.progress < 88) this.progress = Math.min(88, this.progress + 0.4);
+        }, 400);
+        this._timers.push(nudge);
+      },
+      finishProgress() {
+        this._timers.forEach(t => clearTimeout(t) || clearInterval(t));
+        this._timers = [];
+        this.stepIdx = this.steps.length - 1;
+        this.progress = 100;
+      },
+      async scrape() {
+        if (!this.query.trim()) return;
+        this.loading = true; this.result = null; this.error = '';
+        this.startProgress();
+        try {
+          const fd = new FormData();
+          fd.append('company', this.query);
+          const r = await fetch('/scrape/company', { method: 'POST', body: fd });
+          const d = await r.json();
+          this.finishProgress();
+          await new Promise(res => setTimeout(res, 350));
+          if (d.error) this.error = d.error;
+          else this.result = d;
+        } catch(e) {
+          this.finishProgress();
+          this.error = 'Request failed — check your connection.';
+        }
+        this.loading = false;
+      }
+    }">
 
-    {% for provider, label, example, raw_val in [
-      ('greenhouse', 'Greenhouse', 'e.g. stripe, databricks, openai', ats_greenhouse),
-      ('lever', 'Lever', 'e.g. netflix, palantir, waymo', ats_lever),
-      ('ashby', 'Ashby', 'e.g. anduril, figma', ats_ashby),
-      ('smartrecruiters', 'SmartRecruiters', 'e.g. bosch, siemens', ats_smartrecruiters),
+    <div class="text-sm font-semibold text-slate-700 mb-1">Scrape a Company Directly</div>
+    <div class="text-xs text-slate-500 mb-4">
+      Enter any company name or website — we visit their careers page, detect the platform, scrape all open roles, and import them into your Jobs list. Works with Greenhouse, Lever, Ashby, SmartRecruiters, and most custom career pages.
+    </div>
+
+    <!-- Input row -->
+    <div class="flex gap-2 mb-4">
+      <input x-model="query" @keydown.enter.prevent="scrape()" :disabled="loading"
+        type="text"
+        placeholder="e.g.  Boston Dynamics  ·  anduril.com  ·  waymo.com  ·  bostondynamics.com"
+        class="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-colors disabled:opacity-50">
+      <button @click="scrape()" :disabled="loading"
+        class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl min-w-[120px] flex items-center justify-center gap-2 transition-colors">
+        <svg x-show="!loading" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <svg x-show="loading" class="w-4 h-4 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+        <span x-text="loading ? 'Scraping…' : 'Scrape Jobs'"></span>
+      </button>
+    </div>
+
+    <!-- Progress panel -->
+    <div x-show="loading" x-cloak class="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-100">
+      <!-- Bar -->
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="text-xs font-semibold text-slate-500" x-text="steps[stepIdx]?.label"></span>
+        <span class="text-xs text-slate-400" x-text="Math.round(progress) + '%'"></span>
+      </div>
+      <div class="bg-slate-200 rounded-full h-2 mb-4 overflow-hidden">
+        <div class="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500"
+             :style="`width:${progress}%`"></div>
+      </div>
+      <!-- Steps -->
+      <div class="space-y-2.5">
+        <template x-for="(step, i) in steps" :key="i">
+          <div class="flex items-center gap-3">
+            <!-- Icon -->
+            <div class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors"
+                 :class="i < stepIdx ? 'bg-emerald-500' : i === stepIdx ? 'bg-indigo-600' : 'bg-slate-200'">
+              <template x-if="i < stepIdx">
+                <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+              </template>
+              <template x-if="i === stepIdx">
+                <svg class="w-3 h-3 text-white animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+              </template>
+              <template x-if="i > stepIdx">
+                <div class="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+              </template>
+            </div>
+            <div>
+              <div class="text-sm transition-colors"
+                   :class="i < stepIdx ? 'text-emerald-600 font-medium' : i === stepIdx ? 'text-slate-900 font-semibold' : 'text-slate-400'"
+                   x-text="step.label"></div>
+              <div x-show="i === stepIdx" class="text-xs text-indigo-500 mt-0.5" x-text="step.detail"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div x-show="error" x-cloak
+         class="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">
+      <svg class="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span class="text-sm text-red-600" x-text="error"></span>
+    </div>
+
+    <!-- Result panel -->
+    <div x-show="result" x-cloak class="border border-emerald-200 rounded-xl overflow-hidden">
+      <!-- Summary -->
+      <div class="bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
+            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-emerald-800">
+              <span x-text="result?.total"></span> listings found
+              via <span class="capitalize" x-text="result?.platform"></span>
+            </div>
+            <div class="text-xs text-emerald-600">
+              <span class="font-semibold" x-text="result?.new"></span> new ·
+              <span x-text="(result?.total||0)-(result?.new||0)"></span> already in your list
+            </div>
+          </div>
+        </div>
+        <a :href="'/jobs?q=' + encodeURIComponent(result?.company || result?.slug || '')"
+           class="shrink-0 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+          View in Jobs →
+        </a>
+      </div>
+      <!-- Job list -->
+      <div class="max-h-80 overflow-y-auto divide-y divide-slate-50 bg-white">
+        <template x-for="(job, i) in (result?.jobs || [])" :key="i">
+          <div class="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors">
+            <div class="flex-1 min-w-0 mr-3">
+              <div class="text-sm font-medium text-slate-800 truncate" x-text="job.title"></div>
+              <div class="text-xs text-slate-400 mt-0.5" x-text="job.location || 'Location not listed'"></div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <span x-show="job.salary" x-text="job.salary"
+                    class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full"></span>
+              <a :href="job.url" target="_blank" rel="noopener"
+                 class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-2.5 py-1 rounded-lg transition-colors">
+                Apply ↗
+              </a>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- Permanent ATS token lists (for scheduled scraping) -->
+  <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+    <div class="text-sm font-semibold text-slate-700 mb-1">Scheduled Company Boards</div>
+    <div class="text-xs text-slate-500 mb-4">
+      These companies are scraped automatically on every scheduled run. Add slugs here to keep them updated continuously.
+      Use "Scrape a Company" above to find and import a company once without adding it here.
+    </div>
+    {% for provider, label, url_pattern, hint_companies, raw_val in [
+      ('greenhouse', 'Greenhouse', 'boards.greenhouse.io/SLUG', 'Boston Dynamics, Waymo, Zoox, Nuro, Shield AI, Skydio', ats_greenhouse),
+      ('lever', 'Lever', 'jobs.lever.co/SLUG', 'Waymo, Palantir, Scale AI, Cruise', ats_lever),
+      ('ashby', 'Ashby', 'jobs.ashbyhq.com/SLUG', 'Anduril, Covariant, Apptronik, Figure AI', ats_ashby),
+      ('smartrecruiters', 'SmartRecruiters', 'careers.smartrecruiters.com/SLUG', 'Bosch, Siemens, ABB, Kuka', ats_smartrecruiters),
     ] %}
-    <div class="mb-4">
-      <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1">{{ label }}</label>
-      <div class="text-xs text-slate-400 mb-1">{{ example }}</div>
-      <textarea name="ats_{{ provider }}" rows="2"
-        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-        placeholder="{{ example }}">{% if raw_val and raw_val != '[]' %}{{ raw_val | from_json | join(', ') }}{% endif %}</textarea>
+    <div class="mb-5 last:mb-0">
+      <div class="flex items-center justify-between mb-0.5">
+        <label class="text-xs font-semibold text-slate-600 uppercase tracking-wide">{{ label }}</label>
+        <span class="text-xs text-slate-400 font-mono">{{ url_pattern }}</span>
+      </div>
+      <div class="text-xs text-slate-400 mb-1.5">Known robotics companies: {{ hint_companies }}</div>
+      <textarea name="ats_{{ provider }}" id="ats_{{ provider }}" rows="2"
+        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none placeholder-slate-300"
+        placeholder="one slug per line, or comma-separated">{% if raw_val and raw_val != '[]' %}{{ raw_val | from_json | join(', ') }}{% endif %}</textarea>
     </div>
     {% endfor %}
   </div>
