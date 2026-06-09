@@ -1,0 +1,76 @@
+# ============================================================================
+# Job Finder configuration
+# Edit this file to control what gets scraped. No code changes needed.
+# ============================================================================
+
+# Path to the SQLite database (relative to the project root).
+database: jobs.db
+
+# ---------------------------------------------------------------------------
+# JobSpy searches (Indeed, LinkedIn, Glassdoor, Google Jobs).
+# Each entry is one search. Duplicate the block for more roles/countries.
+#   sites          : any of [indeed, linkedin, glassdoor, google]
+#   country        : country for Indeed/Glassdoor (e.g. australia, usa, uk, canada)
+#   results_wanted : max results per site for this search
+#   hours_old      : only jobs posted within this many hours (null = no limit)
+#   is_remote      : true to bias toward remote roles
+# ---------------------------------------------------------------------------
+searches:
+  - query: "data scientist"
+    location: "Sydney, Australia"
+    country: australia
+    sites: [indeed, linkedin, glassdoor, google]
+    results_wanted: 40
+    hours_old: 168
+    is_remote: false
+
+  - query: "machine learning engineer"
+    location: "Remote"
+    country: usa
+    sites: [indeed, linkedin, google]
+    results_wanted: 40
+    hours_old: 168
+    is_remote: true
+
+  - query: "software engineer new grad"
+    location: "London, United Kingdom"
+    country: uk
+    sites: [indeed, linkedin]
+    results_wanted: 30
+    hours_old: 168
+    is_remote: false
+
+# ---------------------------------------------------------------------------
+# Seek (Australia). Not covered by JobSpy -> custom scraper (more fragile).
+# Set enabled: false to skip entirely.
+# ---------------------------------------------------------------------------
+seek:
+  enabled: true
+  searches:
+    - query: "data scientist"
+      location: "All Sydney NSW"
+      pages: 2
+
+# ---------------------------------------------------------------------------
+# Company ATS boards (the maintainable way to scrape "company websites").
+# Find the token in the public board URL:
+#   Greenhouse:  boards.greenhouse.io/<token>          -> token e.g. "stripe"
+#   Lever:       jobs.lever.co/<token>                 -> token e.g. "netflix"
+# Add the companies you care about. Leave lists empty to skip.
+# ---------------------------------------------------------------------------
+ats:
+  enabled: true
+  greenhouse: []   # e.g. [stripe, airbnb, databricks]
+  lever: []        # e.g. [netflix, palantir]
+  # Optional keyword filter applied to ATS titles (case-insensitive). Empty = keep all.
+  keywords: []     # e.g. [engineer, data, machine learning]
+
+# ---------------------------------------------------------------------------
+# In-app scheduler (APScheduler). Runs while the web server is up.
+# Recommendation: use EITHER this OR the launchd job, not both, to avoid
+# double scraping. If you rely on the launchd plist, set enabled: false here.
+# ---------------------------------------------------------------------------
+schedule:
+  enabled: false
+  time: "07:00"             # 24h local time
+  timezone: "Australia/Sydney"

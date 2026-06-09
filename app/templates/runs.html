@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Scrape history · Job Finder{% endblock %}
+{% block content %}
+
+<a href="/" class="text-sm text-blue-600 hover:underline">← Back to list</a>
+<h1 class="text-xl font-semibold mt-4 mb-4">Scrape history</h1>
+
+<div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-100 text-slate-500 text-left">
+      <tr>
+        <th class="px-4 py-2">Started (UTC)</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2">New</th>
+        <th class="px-4 py-2">Seen</th>
+        <th class="px-4 py-2">Per source</th>
+        <th class="px-4 py-2">Errors</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run, counts in runs %}
+      <tr class="border-t border-slate-100">
+        <td class="px-4 py-2">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="px-4 py-2">
+          <span class="{% if run.status=='ok' %}text-emerald-600{% elif run.status=='error' %}text-red-600{% else %}text-slate-500{% endif %}">{{ run.status }}</span>
+        </td>
+        <td class="px-4 py-2">{{ run.new_jobs }}</td>
+        <td class="px-4 py-2">{{ run.total_seen }}</td>
+        <td class="px-4 py-2 text-slate-600">{% for k, v in counts.items() %}{{ k }}:{{ v }} {% endfor %}</td>
+        <td class="px-4 py-2 text-red-500 text-xs">{{ run.errors|truncate(80) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">No scrape runs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

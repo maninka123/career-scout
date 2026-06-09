@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title if job else 'Job' }} · Job Finder{% endblock %}
+{% block content %}
+
+<a href="/" class="text-sm text-blue-600 hover:underline">← Back to list</a>
+
+{% if not job %}
+  <p class="mt-6 text-slate-500">Job not found.</p>
+{% else %}
+<div class="bg-white border border-slate-200 rounded-lg p-6 mt-4">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-xl font-semibold text-slate-900">{{ job.title or 'Untitled' }}</h1>
+      <div class="text-slate-600">{{ job.company or 'Unknown' }} · {{ job.location or '—' }}{% if job.is_remote %} · remote{% endif %}</div>
+      <div class="text-xs text-slate-400 mt-1">
+        {{ job.source }}
+        {% if job.salary_min %}· {{ job.salary_currency }}{{ job.salary_min|int }}{% if job.salary_max %}–{{ job.salary_max|int }}{% endif %} {{ job.salary_interval }}{% endif %}
+        {% if job.date_posted %}· posted {{ job.date_posted.strftime('%Y-%m-%d') }}{% endif %}
+        · <span class="uppercase">{{ job.status }}</span>
+      </div>
+    </div>
+    <a href="{{ job.job_url }}" target="_blank" rel="noopener"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shrink-0">Apply ↗</a>
+  </div>
+
+  <div class="flex gap-1 mt-4">
+    {% for action, label in [('new','New'), ('saved','Save'), ('applied','Applied'), ('hidden','Hide')] %}
+    <form action="/job/{{ job.id }}/status" method="post">
+      <input type="hidden" name="status" value="{{ action }}">
+      <input type="hidden" name="redirect" value="/job/{{ job.id }}">
+      <button class="text-sm border px-3 py-1 rounded hover:bg-slate-100 {% if job.status==action %}bg-slate-900 text-white{% endif %}">{{ label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+
+  <form action="/job/{{ job.id }}/notes" method="post" class="mt-5">
+    <input type="hidden" name="redirect" value="/job/{{ job.id }}">
+    <label class="block text-xs text-slate-500 mb-1">Notes</label>
+    <textarea name="notes" rows="3" class="w-full border rounded px-2 py-1.5">{{ job.notes }}</textarea>
+    <button class="mt-2 bg-slate-900 text-white text-sm px-3 py-1.5 rounded">Save notes</button>
+  </form>
+
+  {% if job.description %}
+  <div class="mt-6 prose max-w-none">
+    <h2 class="text-sm font-semibold text-slate-500 uppercase mb-2">Description</h2>
+    <div class="whitespace-pre-wrap text-sm text-slate-700">{{ job.description }}</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

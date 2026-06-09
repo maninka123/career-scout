@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS launchd job: runs the scraper daily so you never run code by hand.
+
+  SETUP (edit the paths below first):
+    1. Replace __PROJECT_DIR__ with the absolute path to this project.
+    2. Replace __PYTHON__ with the python from your venv
+       (e.g. __PROJECT_DIR__/.venv/bin/python).
+    3. Copy to ~/Library/LaunchAgents/ and load it:
+         cp launchd/com.jobfinder.scrape.plist ~/Library/LaunchAgents/
+         launchctl load ~/Library/LaunchAgents/com.jobfinder.scrape.plist
+    4. To stop:  launchctl unload ~/Library/LaunchAgents/com.jobfinder.scrape.plist
+
+  Runs at 07:00 and 19:00 local time. Edit StartCalendarInterval to change.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jobfinder.scrape</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>__PROJECT_DIR__/scripts/run_scrape.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key><integer>7</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>19</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>__PROJECT_DIR__/scrape.log</string>
+    <key>StandardErrorPath</key>
+    <string>__PROJECT_DIR__/scrape.log</string>
+</dict>
+</plist>
