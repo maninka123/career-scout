@@ -26,6 +26,7 @@ class NormalizedJob:
     salary_currency: str = ""
     salary_interval: str = ""
     date_posted: Optional[datetime] = None
+    source_profile: str = "config"
 
 
 def clean_str(value) -> str:

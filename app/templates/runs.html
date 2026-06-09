@@ -1,36 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Scrape history · Job Finder{% endblock %}
+{% block title %}Scrape History · Career Scout{% endblock %}
 {% block content %}
 
-<a href="/" class="text-sm text-blue-600 hover:underline">← Back to list</a>
-<h1 class="text-xl font-semibold mt-4 mb-4">Scrape history</h1>
+<h1 class="text-2xl font-bold text-slate-900 mb-6">Scrape History</h1>
 
-<div class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
   <table class="w-full text-sm">
-    <thead class="bg-slate-100 text-slate-500 text-left">
+    <thead class="bg-slate-50 text-slate-500 text-left border-b border-slate-100">
       <tr>
-        <th class="px-4 py-2">Started (UTC)</th>
-        <th class="px-4 py-2">Status</th>
-        <th class="px-4 py-2">New</th>
-        <th class="px-4 py-2">Seen</th>
-        <th class="px-4 py-2">Per source</th>
-        <th class="px-4 py-2">Errors</th>
+        <th class="px-5 py-3 font-semibold">Started (UTC)</th>
+        <th class="px-5 py-3 font-semibold">Status</th>
+        <th class="px-5 py-3 font-semibold">Profile</th>
+        <th class="px-5 py-3 font-semibold">New</th>
+        <th class="px-5 py-3 font-semibold">Seen</th>
+        <th class="px-5 py-3 font-semibold">Per Source</th>
+        <th class="px-5 py-3 font-semibold">Errors</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody class="divide-y divide-slate-50">
       {% for run, counts in runs %}
-      <tr class="border-t border-slate-100">
-        <td class="px-4 py-2">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td class="px-4 py-2">
-          <span class="{% if run.status=='ok' %}text-emerald-600{% elif run.status=='error' %}text-red-600{% else %}text-slate-500{% endif %}">{{ run.status }}</span>
+      <tr class="hover:bg-slate-50 transition-colors">
+        <td class="px-5 py-3 text-slate-600">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="px-5 py-3">
+          <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full
+            {% if run.status=='ok' %}bg-emerald-50 text-emerald-700
+            {% elif run.status=='error' %}bg-red-50 text-red-700
+            {% else %}bg-amber-50 text-amber-700{% endif %}">
+            {{ run.status }}
+          </span>
         </td>
-        <td class="px-4 py-2">{{ run.new_jobs }}</td>
-        <td class="px-4 py-2">{{ run.total_seen }}</td>
-        <td class="px-4 py-2 text-slate-600">{% for k, v in counts.items() %}{{ k }}:{{ v }} {% endfor %}</td>
-        <td class="px-4 py-2 text-red-500 text-xs">{{ run.errors|truncate(80) }}</td>
+        <td class="px-5 py-3 text-slate-500 max-w-[120px] truncate">{{ run.profile_name or 'all' }}</td>
+        <td class="px-5 py-3 font-semibold text-indigo-700">+{{ run.new_jobs }}</td>
+        <td class="px-5 py-3 text-slate-600">{{ run.total_seen }}</td>
+        <td class="px-5 py-3 text-slate-500 text-xs">{% for k, v in counts.items() %}<span class="bg-slate-100 px-1.5 py-0.5 rounded mr-1">{{ k }}: {{ v }}</span>{% endfor %}</td>
+        <td class="px-5 py-3 text-red-500 text-xs max-w-[160px] truncate">{{ run.errors[:80] if run.errors else '' }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">No scrape runs yet.</td></tr>
+      <tr><td colspan="7" class="px-5 py-10 text-center text-slate-400">No scrape runs yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

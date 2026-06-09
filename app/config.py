@@ -38,6 +38,8 @@ class AtsConfig(BaseModel):
     enabled: bool = False
     greenhouse: List[str] = Field(default_factory=list)
     lever: List[str] = Field(default_factory=list)
+    ashby: List[str] = Field(default_factory=list)
+    smartrecruiters: List[str] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
 
 

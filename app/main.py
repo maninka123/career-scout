@@ -24,5 +24,5 @@ async def lifespan(_app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="Job Finder", lifespan=lifespan)
+app = FastAPI(title="Career Scout", lifespan=lifespan)
 app.include_router(router)

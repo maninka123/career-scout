@@ -1,52 +1,88 @@
 {% extends "base.html" %}
-{% block title %}{{ job.title if job else 'Job' }} · Job Finder{% endblock %}
+{% block title %}{{ job.title if job else 'Job' }} · Career Scout{% endblock %}
 {% block content %}
 
-<a href="/" class="text-sm text-blue-600 hover:underline">← Back to list</a>
+<a href="/jobs" class="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline mb-6">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+  Back to jobs
+</a>
 
 {% if not job %}
-  <p class="mt-6 text-slate-500">Job not found.</p>
+<p class="text-slate-500">Job not found.</p>
 {% else %}
-<div class="bg-white border border-slate-200 rounded-lg p-6 mt-4">
-  <div class="flex items-start justify-between gap-4">
-    <div>
-      <h1 class="text-xl font-semibold text-slate-900">{{ job.title or 'Untitled' }}</h1>
-      <div class="text-slate-600">{{ job.company or 'Unknown' }} · {{ job.location or '—' }}{% if job.is_remote %} · remote{% endif %}</div>
-      <div class="text-xs text-slate-400 mt-1">
-        {{ job.source }}
-        {% if job.salary_min %}· {{ job.salary_currency }}{{ job.salary_min|int }}{% if job.salary_max %}–{{ job.salary_max|int }}{% endif %} {{ job.salary_interval }}{% endif %}
-        {% if job.date_posted %}· posted {{ job.date_posted.strftime('%Y-%m-%d') }}{% endif %}
-        · <span class="uppercase">{{ job.status }}</span>
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
+  <div class="flex items-start justify-between gap-6">
+    <div class="flex-1">
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <h1 class="text-xl font-bold text-slate-900">{{ job.title or 'Untitled' }}</h1>
+        {% if job.is_remote %}<span class="bg-teal-50 text-teal-700 text-xs font-semibold px-2 py-0.5 rounded-full">Remote</span>{% endif %}
+        {% if job.category and job.category != 'Other' %}<span class="bg-violet-50 text-violet-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ job.category }}</span>{% endif %}
+      </div>
+      <div class="text-slate-500 mb-3">
+        <span class="font-semibold text-slate-700">{{ job.company or 'Unknown' }}</span>
+        {% if job.location %} · {{ job.location }}{% endif %}
+        {% if job.country %} · <span class="uppercase text-xs">{{ job.country }}</span>{% endif %}
+      </div>
+      <div class="flex flex-wrap gap-2 text-xs text-slate-400">
+        <span class="bg-slate-100 px-2 py-0.5 rounded-full">{{ job.source }}</span>
+        {% if job.job_type %}<span class="bg-slate-100 px-2 py-0.5 rounded-full">{{ job.job_type }}</span>{% endif %}
+        {% if job.date_posted %}<span>Posted {{ job.date_posted.strftime('%Y-%m-%d') }}</span>{% endif %}
+        <span>First seen {{ job.first_seen.strftime('%Y-%m-%d') }}</span>
       </div>
     </div>
-    <a href="{{ job.job_url }}" target="_blank" rel="noopener"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shrink-0">Apply ↗</a>
+    <div class="flex flex-col items-end gap-3 shrink-0">
+      {% if job.salary_min %}
+      <div class="bg-emerald-50 text-emerald-700 font-bold px-4 py-2 rounded-xl text-right">
+        <div class="text-xl">{{ job.salary_currency }}{{ "{:,.0f}".format(job.salary_min) }}{% if job.salary_max %} – {{ "{:,.0f}".format(job.salary_max) }}{% endif %}</div>
+        <div class="text-xs font-normal">{{ job.salary_interval }}</div>
+      </div>
+      {% endif %}
+      <a href="{{ job.job_url }}" target="_blank" rel="noopener"
+         class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded-xl transition-colors text-sm">
+        Apply ↗
+      </a>
+    </div>
   </div>
+</div>
 
-  <div class="flex gap-1 mt-4">
-    {% for action, label in [('new','New'), ('saved','Save'), ('applied','Applied'), ('hidden','Hide')] %}
+<!-- Status buttons -->
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6">
+  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Status</div>
+  <div class="flex gap-2 flex-wrap">
+    {% for action, label in [('new','New'), ('saved','Save'), ('applied','Mark Applied'), ('hidden','Hide')] %}
     <form action="/job/{{ job.id }}/status" method="post">
       <input type="hidden" name="status" value="{{ action }}">
       <input type="hidden" name="redirect" value="/job/{{ job.id }}">
-      <button class="text-sm border px-3 py-1 rounded hover:bg-slate-100 {% if job.status==action %}bg-slate-900 text-white{% endif %}">{{ label }}</button>
+      <button class="text-sm px-4 py-2 rounded-xl border-2 font-medium transition-colors
+        {% if job.status == action %}
+          {% if action == 'new' %}bg-indigo-600 border-indigo-600 text-white
+          {% elif action == 'saved' %}bg-amber-500 border-amber-500 text-white
+          {% elif action == 'applied' %}bg-emerald-600 border-emerald-600 text-white
+          {% else %}bg-slate-700 border-slate-700 text-white{% endif %}
+        {% else %}border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50{% endif %}">
+        {{ label }}
+      </button>
     </form>
     {% endfor %}
   </div>
-
-  <form action="/job/{{ job.id }}/notes" method="post" class="mt-5">
-    <input type="hidden" name="redirect" value="/job/{{ job.id }}">
-    <label class="block text-xs text-slate-500 mb-1">Notes</label>
-    <textarea name="notes" rows="3" class="w-full border rounded px-2 py-1.5">{{ job.notes }}</textarea>
-    <button class="mt-2 bg-slate-900 text-white text-sm px-3 py-1.5 rounded">Save notes</button>
-  </form>
-
-  {% if job.description %}
-  <div class="mt-6 prose max-w-none">
-    <h2 class="text-sm font-semibold text-slate-500 uppercase mb-2">Description</h2>
-    <div class="whitespace-pre-wrap text-sm text-slate-700">{{ job.description }}</div>
-  </div>
-  {% endif %}
 </div>
+
+<!-- Notes -->
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6">
+  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Notes</div>
+  <form action="/job/{{ job.id }}/notes" method="post">
+    <input type="hidden" name="redirect" value="/job/{{ job.id }}">
+    <textarea name="notes" rows="3" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none" placeholder="Add your notes here…">{{ job.notes }}</textarea>
+    <button class="mt-2 bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors">Save notes</button>
+  </form>
+</div>
+
+{% if job.description %}
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-4">Job Description</div>
+  <div class="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">{{ job.description }}</div>
+</div>
+{% endif %}
 {% endif %}
 
 {% endblock %}

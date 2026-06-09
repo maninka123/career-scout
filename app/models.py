@@ -1,4 +1,4 @@
-"""Database models: Job and ScrapeRun."""
+"""Database models: Job, ScrapeRun, SearchProfile, AppSetting."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -8,7 +8,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-# Job lifecycle states the user can set from the UI.
 STATUS_NEW = "new"
 STATUS_SAVED = "saved"
 STATUS_APPLIED = "applied"
@@ -25,7 +24,6 @@ class Job(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(32), index=True)
-    # job_url is the natural dedupe key across sources.
     job_url: Mapped[str] = mapped_column(String(1024), unique=True, index=True)
 
     title: Mapped[str] = mapped_column(String(512), default="")
@@ -49,6 +47,10 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(16), default=STATUS_NEW, index=True)
     notes: Mapped[str] = mapped_column(Text, default="")
 
+    # v2 additions (migrated in via ALTER TABLE if not present)
+    category: Mapped[str] = mapped_column(String(64), default="Other", index=True)
+    source_profile: Mapped[str] = mapped_column(String(128), default="config")
+
 
 class ScrapeRun(Base):
     __tablename__ = "scrape_runs"
@@ -56,9 +58,48 @@ class ScrapeRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    status: Mapped[str] = mapped_column(String(16), default="running")  # running/ok/error
-    # JSON string: per-source counts, e.g. {"indeed": 40, "linkedin": 12}
+    status: Mapped[str] = mapped_column(String(16), default="running")
     source_counts: Mapped[str] = mapped_column(Text, default="{}")
     new_jobs: Mapped[int] = mapped_column(Integer, default=0)
     total_seen: Mapped[int] = mapped_column(Integer, default=0)
     errors: Mapped[str] = mapped_column(Text, default="")
+    profile_name: Mapped[str] = mapped_column(String(128), default="")
+
+
+class SearchProfile(Base):
+    __tablename__ = "search_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # JSON-encoded lists
+    countries: Mapped[str] = mapped_column(Text, default="[]")
+    sites: Mapped[str] = mapped_column(Text, default='["indeed","linkedin"]')
+    roles: Mapped[str] = mapped_column(Text, default="[]")
+    match_any: Mapped[str] = mapped_column(Text, default="[]")
+    match_at_least_one: Mapped[str] = mapped_column(Text, default="[]")
+    exclude: Mapped[str] = mapped_column(Text, default="[]")
+    job_levels: Mapped[str] = mapped_column(Text, default="[]")
+    career_fields: Mapped[str] = mapped_column(Text, default="[]")
+
+    results_wanted: Mapped[int] = mapped_column(Integer, default=40)
+    hours_old: Mapped[int] = mapped_column(Integer, default=168)
+    is_remote: Mapped[bool] = mapped_column(Boolean, default=False)
+    use_ats: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    schedule_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # daily / twice_daily / weekly
+    schedule_frequency: Mapped[str] = mapped_column(String(32), default="daily")
+    schedule_time: Mapped[str] = mapped_column(String(8), default="07:00")
+    timezone: Mapped[str] = mapped_column(String(64), default="Australia/Sydney")
+
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_new_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
