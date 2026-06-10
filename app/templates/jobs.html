@@ -1,16 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Jobs · Career Scout{% endblock %}
+{% set titles = {'jobs': 'Jobs', 'saved': 'Saved Jobs', 'applied': 'Applied'} %}
+{% set subtitles = {'jobs': 'Fresh listings to triage', 'saved': 'Roles you bookmarked to revisit', 'applied': 'Roles you have applied to'} %}
+{% block title %}{{ titles[view] }} · Career Scout{% endblock %}
 {% block content %}
 
-<div class="flex items-center justify-between mb-6">
-  <h1 class="text-2xl font-bold text-slate-900">Jobs</h1>
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-900">{{ titles[view] }}</h1>
+    <p class="text-sm text-slate-400 mt-0.5">{{ subtitles[view] }}</p>
+  </div>
   {% if last_run %}
   <span class="text-xs text-slate-400">Last scraped {{ last_run.started_at.strftime('%Y-%m-%d %H:%M') }} UTC · {{ last_run.new_jobs }} new</span>
   {% endif %}
 </div>
 
+<!-- View tabs -->
+{% set tab_base = "px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2" %}
+{% set tab_on = "bg-slate-900 text-white" %}
+{% set tab_off = "bg-white text-slate-600 border border-slate-200 hover:border-slate-300" %}
+<div class="flex gap-2 mb-6">
+  <a href="/jobs" class="{{ tab_base }} {{ tab_on if view=='jobs' else tab_off }}">
+    New {% if new_jobs_badge %}<span class="text-xs {{ 'bg-white/20' if view=='jobs' else 'bg-indigo-50 text-indigo-600' }} px-1.5 rounded-full">{{ new_jobs_badge }}</span>{% endif %}
+  </a>
+  <a href="/saved" class="{{ tab_base }} {{ tab_on if view=='saved' else tab_off }}">
+    Saved {% if saved_badge %}<span class="text-xs {{ 'bg-white/20' if view=='saved' else 'bg-amber-50 text-amber-600' }} px-1.5 rounded-full">{{ saved_badge }}</span>{% endif %}
+  </a>
+  <a href="/applied" class="{{ tab_base }} {{ tab_on if view=='applied' else tab_off }}">
+    Applied {% if applied_badge %}<span class="text-xs {{ 'bg-white/20' if view=='applied' else 'bg-emerald-50 text-emerald-600' }} px-1.5 rounded-full">{{ applied_badge }}</span>{% endif %}
+  </a>
+</div>
+
 <!-- Filters -->
-<form method="get" class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 items-end">
+<form method="get" class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 items-end">
   <div class="col-span-2">
     <label class="block text-xs text-slate-500 mb-1 font-medium">Search</label>
     <input name="q" value="{{ filters.q }}" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" placeholder="title, company…">
@@ -34,13 +55,6 @@
     <select name="category" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
       <option value="">Any</option>
       {% for c in categories %}<option value="{{ c }}" {% if c==filters.category %}selected{% endif %}>{{ c }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="block text-xs text-slate-500 mb-1 font-medium">Status</label>
-    <select name="status" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-      <option value="">All</option>
-      {% for s in statuses %}<option value="{{ s }}" {% if s==filters.status %}selected{% endif %}>{{ s.title() }}</option>{% endfor %}
     </select>
   </div>
   <div>
@@ -102,17 +116,44 @@
            class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors">
           Apply ↗
         </a>
-        <div class="flex gap-1">
-          {% for action, label in [('saved','Save'), ('applied','Applied'), ('hidden','Hide')] %}
-          <form action="/job/{{ job.id }}/status" method="post">
-            <input type="hidden" name="status" value="{{ action }}">
-            <input type="hidden" name="redirect" value="{{ request.url }}">
-            <button class="text-xs border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors {% if job.status == action %}bg-slate-900 text-white border-slate-900{% endif %}">{{ label }}</button>
-          </form>
-          {% endfor %}
+        {# Reusable button styles #}
+        {% set btn = "text-xs border px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1" %}
+        {% set btn_neutral = "border-slate-200 text-slate-600 hover:bg-slate-50" %}
+        {% set btn_amber = "border-amber-200 text-amber-700 hover:bg-amber-50" %}
+        {% set btn_emerald = "border-emerald-200 text-emerald-700 hover:bg-emerald-50" %}
+        <div class="flex gap-1.5 flex-wrap justify-end">
+          {% if view == 'jobs' %}
+            <form action="/job/{{ job.id }}/status" method="post">
+              <input type="hidden" name="status" value="saved">
+              <input type="hidden" name="redirect" value="{{ request.url }}">
+              <button class="{{ btn }} {{ btn_amber }}">★ Save</button>
+            </form>
+            <form action="/job/{{ job.id }}/status" method="post">
+              <input type="hidden" name="status" value="applied">
+              <input type="hidden" name="redirect" value="{{ request.url }}">
+              <button class="{{ btn }} {{ btn_emerald }}">✓ Applied</button>
+            </form>
+          {% elif view == 'saved' %}
+            <form action="/job/{{ job.id }}/status" method="post">
+              <input type="hidden" name="status" value="new">
+              <input type="hidden" name="redirect" value="{{ request.url }}">
+              <button class="{{ btn }} {{ btn_neutral }}">↩ Unsave</button>
+            </form>
+            <form action="/job/{{ job.id }}/status" method="post">
+              <input type="hidden" name="status" value="applied">
+              <input type="hidden" name="redirect" value="{{ request.url }}">
+              <button class="{{ btn }} {{ btn_emerald }}">✓ Applied</button>
+            </form>
+          {% elif view == 'applied' %}
+            <form action="/job/{{ job.id }}/status" method="post">
+              <input type="hidden" name="status" value="new">
+              <input type="hidden" name="redirect" value="{{ request.url }}">
+              <button class="{{ btn }} {{ btn_neutral }}">↩ Move to Jobs</button>
+            </form>
+          {% endif %}
           <form action="/job/{{ job.id }}/remove" method="post">
             <input type="hidden" name="redirect" value="{{ request.url }}">
-            <button type="submit" title="Move to bin"
+            <button type="submit" title="Move to recycle bin"
               class="text-xs border border-slate-200 px-2 py-1 rounded-lg hover:bg-red-50 hover:border-red-300 hover:text-red-500 text-slate-400 transition-colors">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             </button>
@@ -123,9 +164,25 @@
   </div>
   {% else %}
   <div class="bg-white rounded-2xl border border-slate-100 p-12 text-center">
-    <div class="text-4xl mb-3">🤖</div>
-    <div class="text-slate-500 font-medium">No jobs match these filters.</div>
-    <div class="text-slate-400 text-sm mt-1">Try clicking <strong>Scrape All Now</strong> or adjusting your Search Profiles.</div>
+    {% if view == 'saved' %}
+      <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-amber-50 flex items-center justify-center">
+        <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
+      </div>
+      <div class="text-slate-500 font-medium">No saved jobs yet.</div>
+      <div class="text-slate-400 text-sm mt-1">Hit <strong>★ Save</strong> on a job to bookmark it here.</div>
+    {% elif view == 'applied' %}
+      <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-emerald-50 flex items-center justify-center">
+        <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+      <div class="text-slate-500 font-medium">No applications tracked yet.</div>
+      <div class="text-slate-400 text-sm mt-1">Mark a job <strong>✓ Applied</strong> to track it here.</div>
+    {% else %}
+      <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-indigo-50 flex items-center justify-center">
+        <svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      </div>
+      <div class="text-slate-500 font-medium">No jobs match these filters.</div>
+      <div class="text-slate-400 text-sm mt-1">Try <strong>Scrape All Now</strong> or adjusting your Search Profiles.</div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

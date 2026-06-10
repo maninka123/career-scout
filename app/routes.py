@@ -52,10 +52,16 @@ def _get_setting(session, key: str, default: str = "") -> str:
     return row.value if row else default
 
 
+def _status_count(session, status: str) -> int:
+    return session.query(func.count(Job.id)).filter(Job.status == status, Job.removed.is_(False)).scalar() or 0
+
+
 def _base_ctx(session, request: Request) -> dict:
     return {
         "request": request,
         "new_jobs_badge": _new_jobs_count(session),
+        "saved_badge": _status_count(session, "saved"),
+        "applied_badge": _status_count(session, "applied"),
         "bin_count": _bin_count(session),
         "scraping": is_running(),
     }
@@ -150,6 +156,29 @@ def dashboard(request: Request):
         # Recent new jobs
         recent_jobs = session.query(Job).filter(_active, Job.status == "new").order_by(Job.first_seen.desc()).limit(8).all()
 
+        # Top picks: best unapplied matches. Prefer active-profile jobs, then ones
+        # with salary, then remote, then newest. Exclude applied/hidden.
+        active_names = [
+            r[0] for r in session.query(SearchProfile.name)
+            .filter(SearchProfile.enabled.is_(True)).all()
+        ]
+        pick_priority = (
+            case((Job.source_profile.in_(active_names), 0), else_=1)
+            if active_names else case((Job.source_profile == "config", 0), else_=1)
+        )
+        top_picks = (
+            session.query(Job)
+            .filter(_active, Job.status.in_(("new", "saved")))
+            .order_by(
+                pick_priority,
+                case((Job.salary_min.isnot(None), 0), else_=1),
+                case((Job.is_remote.is_(True), 0), else_=1),
+                Job.first_seen.desc(),
+            )
+            .limit(5)
+            .all()
+        )
+
         ctx = _base_ctx(session, request)
         ctx.update({
             "total": total,
@@ -166,6 +195,7 @@ def dashboard(request: Request):
             "salary_stats": salary_stats,
             "recent_runs": parsed_runs,
             "recent_jobs": recent_jobs,
+            "top_picks": top_picks,
         })
         return templates.TemplateResponse("dashboard.html", ctx)
     finally:
@@ -176,19 +206,12 @@ def dashboard(request: Request):
 # Jobs list
 # ---------------------------------------------------------------------------
 
-@router.get("/jobs", response_class=HTMLResponse)
-def jobs(
-    request: Request,
-    q: str = "",
-    source: str = "",
-    country: str = "",
-    status: str = "new",
-    remote: str = "",
-    category: str = "",
-    profile: str = "",
-    page: int = 1,
-    per_page: int = 40,
-):
+def _render_job_list(request, *, view, q, source, country, status, remote, category, profile, page, per_page):
+    """Shared listing logic for the Jobs / Saved / Applied pages.
+
+    view: "jobs" (working inbox), "saved", or "applied". For saved/applied the
+    status is forced and tailored action buttons are shown in the template.
+    """
     session = SessionLocal()
     try:
         query = session.query(Job).filter(Job.removed.is_(False))
@@ -208,17 +231,11 @@ def jobs(
         if profile:
             query = query.filter(Job.source_profile == profile)
 
-        # Active profile names — used to sort profile-matched jobs to the top
         active_profile_names = [
             r[0] for r in session.query(SearchProfile.name)
             .filter(SearchProfile.enabled.is_(True)).all()
         ]
 
-        # Sort priority:
-        # 0 = from an active profile (most relevant to user)
-        # 1 = from config.yaml searches
-        # 2 = everything else
-        # Within each tier: salary present first, then newest first
         if active_profile_names:
             priority = case(
                 (Job.source_profile.in_(active_profile_names), 0),
@@ -226,22 +243,24 @@ def jobs(
                 else_=2,
             )
         else:
-            priority = case(
-                (Job.source_profile == "config", 0),
-                else_=1,
-            )
+            priority = case((Job.source_profile == "config", 0), else_=1)
 
         has_salary = case((Job.salary_min.isnot(None), 0), else_=1)
 
         total = query.count()
         per_page = per_page if per_page in (20, 40, 60, 100) else 40
         page = max(1, page)
-        import math
         total_pages = max(1, math.ceil(total / per_page))
         page = min(page, total_pages)
 
+        # Saved/applied: order by most-recently updated (last_seen) so latest actions surface
+        if view in ("saved", "applied"):
+            order = (Job.last_seen.desc(), Job.first_seen.desc())
+        else:
+            order = (priority, has_salary, Job.first_seen.desc())
+
         job_list = (
-            query.order_by(priority, has_salary, Job.first_seen.desc())
+            query.order_by(*order)
             .offset((page - 1) * per_page)
             .limit(per_page)
             .all()
@@ -252,6 +271,7 @@ def jobs(
 
         ctx = _base_ctx(session, request)
         ctx.update({
+            "view": view,
             "jobs": job_list,
             "total": total,
             "page": page,
@@ -270,6 +290,47 @@ def jobs(
         return templates.TemplateResponse("jobs.html", ctx)
     finally:
         session.close()
+
+
+@router.get("/jobs", response_class=HTMLResponse)
+def jobs(
+    request: Request,
+    q: str = "",
+    source: str = "",
+    country: str = "",
+    status: str = "new",
+    remote: str = "",
+    category: str = "",
+    profile: str = "",
+    page: int = 1,
+    per_page: int = 40,
+):
+    return _render_job_list(
+        request, view="jobs", q=q, source=source, country=country, status=status,
+        remote=remote, category=category, profile=profile, page=page, per_page=per_page,
+    )
+
+
+@router.get("/saved", response_class=HTMLResponse)
+def saved_jobs(
+    request: Request, q: str = "", source: str = "", country: str = "",
+    remote: str = "", category: str = "", profile: str = "", page: int = 1, per_page: int = 40,
+):
+    return _render_job_list(
+        request, view="saved", q=q, source=source, country=country, status="saved",
+        remote=remote, category=category, profile=profile, page=page, per_page=per_page,
+    )
+
+
+@router.get("/applied", response_class=HTMLResponse)
+def applied_jobs(
+    request: Request, q: str = "", source: str = "", country: str = "",
+    remote: str = "", category: str = "", profile: str = "", page: int = 1, per_page: int = 40,
+):
+    return _render_job_list(
+        request, view="applied", q=q, source=source, country=country, status="applied",
+        remote=remote, category=category, profile=profile, page=page, per_page=per_page,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +496,36 @@ def scrape_now():
     if not is_running():
         threading.Thread(target=run_scrape, daemon=True).start()
     return RedirectResponse("/", status_code=303)
+
+
+@router.post("/scrape/start")
+def scrape_start():
+    """Kick off a scrape and return immediately (for the async progress button)."""
+    started = False
+    if not is_running():
+        threading.Thread(target=run_scrape, daemon=True).start()
+        started = True
+    return JSONResponse({"started": started, "running": True})
+
+
+@router.get("/scrape/status")
+def scrape_status():
+    """Poll target for the Scrape-Now progress button."""
+    session = SessionLocal()
+    try:
+        running = is_running()
+        last = session.query(ScrapeRun).order_by(ScrapeRun.started_at.desc()).first()
+        payload = {"running": running}
+        if last:
+            payload["last"] = {
+                "status": last.status,
+                "new_jobs": last.new_jobs or 0,
+                "total_seen": last.total_seen or 0,
+                "finished": last.finished_at.isoformat() if last.finished_at else None,
+            }
+        return JSONResponse(payload)
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------

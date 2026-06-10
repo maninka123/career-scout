@@ -2,23 +2,77 @@
 {% block title %}Dashboard · Career Scout{% endblock %}
 {% block content %}
 
-<h1 class="text-2xl font-bold text-slate-900 mb-6">Dashboard</h1>
+<div class="flex items-end justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-900">Dashboard</h1>
+    <p class="text-sm text-slate-400 mt-0.5">Your robotics job radar at a glance</p>
+  </div>
+</div>
 
 <!-- Stat cards -->
 <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
   {% set cards = [
-    ("Total Jobs", total, "text-slate-700", "bg-white"),
-    ("New", new_count, "text-indigo-700", "bg-indigo-50"),
-    ("Saved", saved_count, "text-amber-700", "bg-amber-50"),
-    ("Applied", applied_count, "text-emerald-700", "bg-emerald-50"),
-    ("New Today", new_today, "text-violet-700", "bg-violet-50"),
+    ("Total Jobs", total, "text-slate-700", "bg-white", "/jobs?status="),
+    ("New", new_count, "text-indigo-700", "bg-indigo-50", "/jobs"),
+    ("Saved", saved_count, "text-amber-700", "bg-amber-50", "/saved"),
+    ("Applied", applied_count, "text-emerald-700", "bg-emerald-50", "/applied"),
+    ("New Today", new_today, "text-violet-700", "bg-violet-50", "/jobs"),
   ] %}
-  {% for label, value, color, bg in cards %}
-  <div class="{{ bg }} rounded-2xl p-5 shadow-sm border border-slate-100">
+  {% for label, value, color, bg, link in cards %}
+  <a href="{{ link }}" class="{{ bg }} rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md hover:-translate-y-0.5 transition-all block">
     <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{{ label }}</div>
     <div class="text-3xl font-bold {{ color }}">{{ value }}</div>
-  </div>
+  </a>
   {% endfor %}
+</div>
+
+<!-- Top Picks -->
+<div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-8">
+  <div class="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-slate-100">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shrink-0">
+        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+      </div>
+      <div>
+        <h2 class="text-sm font-bold text-slate-800">Top Picks for You</h2>
+        <p class="text-xs text-slate-500">Best matches you haven't applied to yet</p>
+      </div>
+    </div>
+    <a href="/jobs" class="text-indigo-600 text-sm font-medium hover:underline shrink-0">Browse all →</a>
+  </div>
+  {% if top_picks %}
+  <div class="divide-y divide-slate-50">
+    {% for job in top_picks %}
+    <div class="flex items-center gap-4 px-5 py-3 hover:bg-slate-50 transition-colors">
+      <div class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold text-sm flex items-center justify-center shrink-0">{{ loop.index }}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="/job/{{ job.id }}" class="text-sm font-semibold text-slate-800 hover:text-indigo-600 truncate">{{ job.title }}</a>
+          {% if job.is_remote %}<span class="text-[11px] bg-teal-50 text-teal-700 font-semibold px-1.5 py-0.5 rounded-full">Remote</span>{% endif %}
+          {% if job.status == 'saved' %}<span class="text-[11px] bg-amber-50 text-amber-700 font-semibold px-1.5 py-0.5 rounded-full">Saved</span>{% endif %}
+        </div>
+        <div class="text-xs text-slate-400 mt-0.5 truncate">{{ job.company }}{% if job.location %} · {{ job.location }}{% endif %}</div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        {% if job.salary_min %}
+        <span class="hidden sm:inline text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
+          {{ job.salary_currency }}{{ job.salary_min|int }}{% if job.salary_max %}–{{ job.salary_max|int }}{% endif %}</span>
+        {% endif %}
+        {% if job.status != 'saved' %}
+        <form action="/job/{{ job.id }}/status" method="post">
+          <input type="hidden" name="status" value="saved">
+          <input type="hidden" name="redirect" value="/">
+          <button class="text-xs border border-amber-200 text-amber-700 hover:bg-amber-50 font-medium px-2.5 py-1 rounded-lg transition-colors">★ Save</button>
+        </form>
+        {% endif %}
+        <a href="{{ job.job_url }}" target="_blank" rel="noopener" class="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700 font-semibold transition-colors">Apply ↗</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-5 py-8 text-center text-slate-400 text-sm">No picks yet — run a scrape to populate your radar.</div>
+  {% endif %}
 </div>
 
 <!-- Charts row -->
@@ -104,26 +158,29 @@
   </div>
 </div>
 
-<!-- Recent New Jobs -->
+<!-- Recently Added -->
 <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-8">
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-sm font-semibold text-slate-600 uppercase tracking-wide">Recently Added</h2>
-    <a href="/jobs?status=new" class="text-indigo-600 text-sm hover:underline">View all new →</a>
+    <div class="flex items-center gap-2">
+      <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <h2 class="text-sm font-semibold text-slate-600 uppercase tracking-wide">Recently Added</h2>
+    </div>
+    <a href="/jobs" class="text-indigo-600 text-sm hover:underline">View all new →</a>
   </div>
   {% if recent_jobs %}
-  <div class="space-y-2">
+  <div class="space-y-1">
     {% for job in recent_jobs %}
-    <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-      <div>
+    <div class="flex items-center justify-between py-2 px-2 -mx-2 rounded-lg hover:bg-slate-50 transition-colors">
+      <div class="min-w-0">
         <a href="/job/{{ job.id }}" class="text-sm font-medium text-slate-800 hover:text-indigo-600">{{ job.title }}</a>
-        <div class="text-xs text-slate-400">{{ job.company }} · {{ job.location or '—' }} · <span class="text-slate-500">{{ job.source }}</span></div>
+        <div class="text-xs text-slate-400 truncate">{{ job.company }} · {{ job.location or '—' }} · <span class="text-slate-500">{{ job.source }}</span></div>
       </div>
       <div class="flex items-center gap-2 shrink-0 ml-4">
         {% if job.salary_min %}
         <span class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
           {{ job.salary_currency }}{{ job.salary_min|int }}{% if job.salary_max %}–{{ job.salary_max|int }}{% endif %}</span>
         {% endif %}
-        <a href="{{ job.job_url }}" target="_blank" rel="noopener" class="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded-lg hover:bg-indigo-700">Apply ↗</a>
+        <a href="{{ job.job_url }}" target="_blank" rel="noopener" class="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded-lg hover:bg-indigo-700 font-semibold">Apply ↗</a>
       </div>
     </div>
     {% endfor %}

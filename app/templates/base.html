@@ -15,9 +15,14 @@
 
   <!-- Sidebar -->
   <aside class="w-56 min-h-screen bg-slate-900 flex flex-col shrink-0 fixed top-0 left-0 z-30">
-    <div class="px-5 py-5 border-b border-slate-700">
-      <span class="text-white font-bold text-base tracking-tight">🤖 Career Scout</span>
-      <div class="text-slate-400 text-xs mt-0.5">Robotics &amp; Autonomy</div>
+    <div class="px-5 py-5 border-b border-slate-700 flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shrink-0">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+      </div>
+      <div>
+        <div class="text-white font-bold text-base tracking-tight leading-none">Career Scout</div>
+        <div class="text-slate-400 text-xs mt-1">Robotics &amp; Autonomy</div>
+      </div>
     </div>
     <nav class="flex-1 px-3 py-4 space-y-1">
       {% set link_base = "flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition-colors text-sm font-medium" %}
@@ -34,6 +39,20 @@
         <span class="ml-auto bg-indigo-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{{ new_jobs_badge }}</span>
         {% endif %}
       </a>
+      <a href="/saved" class="{{ link_active if request.url.path.startswith('/saved') else link_base }}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
+        Saved
+        {% if saved_badge %}
+        <span class="ml-auto bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{{ saved_badge }}</span>
+        {% endif %}
+      </a>
+      <a href="/applied" class="{{ link_active if request.url.path.startswith('/applied') else link_base }}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Applied
+        {% if applied_badge %}
+        <span class="ml-auto bg-emerald-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{{ applied_badge }}</span>
+        {% endif %}
+      </a>
       <a href="/profiles" class="{{ link_active if request.url.path.startswith('/profiles') else link_base }}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
         Search Profiles
@@ -47,19 +66,61 @@
         Settings
       </a>
     </nav>
-    <div class="px-3 py-4 border-t border-slate-700">
-      <form action="/scrape" method="post">
-        <button type="submit"
-          class="w-full flex items-center justify-center gap-2 {% if scraping %}bg-amber-500 cursor-wait{% else %}bg-emerald-500 hover:bg-emerald-600{% endif %} text-white text-sm font-semibold py-2 rounded-lg transition-colors">
-          {% if scraping %}
+    <div class="px-3 py-4 border-t border-slate-700"
+      x-data="{
+        running: {{ 'true' if scraping else 'false' }},
+        elapsed: 0,
+        done: null,
+        _tick: null,
+        _poll: null,
+        init() { if (this.running) this.watch(); },
+        async start() {
+          if (this.running) return;
+          this.running = true; this.elapsed = 0; this.done = null;
+          this._tick = setInterval(() => this.elapsed++, 1000);
+          try { await fetch('/scrape/start', { method: 'POST' }); } catch(e) {}
+          this.watch();
+        },
+        watch() {
+          if (!this._tick) this._tick = setInterval(() => this.elapsed++, 1000);
+          this._poll = setInterval(async () => {
+            try {
+              const r = await fetch('/scrape/status');
+              const d = await r.json();
+              if (!d.running) {
+                clearInterval(this._poll); clearInterval(this._tick);
+                this._poll = this._tick = null;
+                this.running = false;
+                this.done = d.last || { new_jobs: 0 };
+                setTimeout(() => location.reload(), 1200);
+              }
+            } catch(e) {}
+          }, 1500);
+        },
+        fmt(s) { const m = Math.floor(s/60), ss = s%60; return m ? `${m}m ${ss}s` : `${ss}s`; }
+      }" x-init="init()">
+
+      <button @click="start()" :disabled="running"
+        class="w-full flex items-center justify-center gap-2 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
+        :class="running ? 'bg-amber-500 cursor-wait' : (done ? 'bg-emerald-600' : 'bg-emerald-500 hover:bg-emerald-600')">
+        <template x-if="running">
           <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
-          Scraping…
-          {% else %}
+        </template>
+        <template x-if="!running && done">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+        </template>
+        <template x-if="!running && !done">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-          Scrape All Now
-          {% endif %}
-        </button>
-      </form>
+        </template>
+        <span x-show="!running && !done">Scrape All Now</span>
+        <span x-show="running" x-text="'Scraping… ' + fmt(elapsed)"></span>
+        <span x-show="!running && done" x-text="'+' + (done?.new_jobs ?? 0) + ' new'"></span>
+      </button>
+
+      <!-- Indeterminate progress bar while running -->
+      <div x-show="running" x-cloak class="mt-2 h-1 bg-slate-700 rounded-full overflow-hidden">
+        <div class="h-1 bg-amber-400 rounded-full animate-pulse" style="width:100%"></div>
+      </div>
     </div>
   </aside>
 
