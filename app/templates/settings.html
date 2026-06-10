@@ -49,6 +49,8 @@
         { label: 'Preparing results for review',  detail: 'Nothing is saved yet — you choose what to add…' }
       ],
       newJobs() { return (this.result?.jobs || []).filter(j => j.state === 'new'); },
+      visibleJobs() { return (this.result?.jobs || []).filter(j => j.state !== 'in_list'); },
+      hiddenCount() { return (this.result?.jobs || []).filter(j => j.state === 'in_list').length; },
       selectedUrls() { return Object.keys(this.sel).filter(u => this.sel[u]); },
       selectedCount() { return this.selectedUrls().length; },
       allNewSelected() { const n = this.newJobs(); return n.length > 0 && n.every(j => this.sel[j.url]); },
@@ -137,9 +139,19 @@
     <!-- Input row -->
     <div class="flex gap-2 mb-4">
       <input x-model="query" @keydown.enter.prevent="scrape()" :disabled="loading"
-        type="text"
-        placeholder="e.g.  Boston Dynamics  ·  anduril.com  ·  waymo.com  ·  bostondynamics.com"
+        type="text" list="company-suggestions" autocomplete="off"
+        placeholder="Start typing a company…  e.g.  Boston Dynamics  ·  anduril.com  ·  waymo.com"
         class="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-colors disabled:opacity-50">
+      <datalist id="company-suggestions">
+        {% for c in [
+          'Boston Dynamics','Waymo','Zoox','Nuro','Shield AI','Skydio','Anduril','Covariant',
+          'Apptronik','Figure AI','Cruise','Aurora','Scale AI','Palantir','Tesla','SpaceX',
+          'NVIDIA','Locus Robotics','Symbotic','Berkshire Grey','iRobot','Intuitive Surgical',
+          'Relativity Space','Rivian','Wing','Zipline','Neuralink','DeepMind','OpenAI','Anthropic',
+          'Bosch','Siemens','ABB','Kuka','Fanuc','Caterpillar','Komatsu','John Deere',
+          'Peabody Energy','BHP','Rio Tinto','Fortescue'
+        ] %}<option value="{{ c }}">{% endfor %}
+      </datalist>
       <button @click="scrape()" :disabled="loading"
         class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl min-w-[120px] flex items-center justify-center gap-2 transition-colors">
         <svg x-show="!loading" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -247,9 +259,14 @@
         </div>
       </div>
 
-      <!-- Job list -->
+      <!-- Already-imported note -->
+      <div x-show="hiddenCount()" x-cloak class="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-400">
+        <span x-text="hiddenCount()"></span> job<span x-show="hiddenCount() !== 1">s</span> from earlier scrapes already in your list — hidden below.
+      </div>
+
+      <!-- Job list (already-imported ones are filtered out) -->
       <div class="max-h-96 overflow-y-auto divide-y divide-slate-50 bg-white">
-        <template x-for="(job, i) in (result?.jobs || [])" :key="job.url">
+        <template x-for="job in visibleJobs()" :key="job.url">
           <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors"
                :class="job.state !== 'new' ? 'opacity-60' : ''">
             <!-- Checkbox (only for new jobs) -->
@@ -273,6 +290,10 @@
             </div>
           </div>
         </template>
+        <!-- All jobs already imported -->
+        <div x-show="visibleJobs().length === 0" class="px-4 py-6 text-center text-sm text-slate-400">
+          Every job from this company is already in your list.
+        </div>
       </div>
     </div>
 
