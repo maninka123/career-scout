@@ -32,11 +32,23 @@ def _infer_country(location: str, fallback: str = "") -> str:
     if not location:
         return fallback
     loc = location.upper()
-    # Check each comma/dot/bullet segment for a US state code
+    # Check each comma/dot/bullet segment for a US state code, then an ISO country code
     import re as _re
-    for part in _re.split(r"[,·•\|]", loc):
-        if part.strip() in _US_STATES:
+    segments = [p.strip() for p in _re.split(r"[,·•\|]", loc)]
+    for part in segments:
+        if part in _US_STATES:
             return "united states"
+    # ISO-3166 codes that SuccessFactors/Workday append (e.g. "Mudgee, NSW, AU, 2850").
+    # Only codes that don't collide with US state abbreviations.
+    _ISO = {
+        "AU": "australia", "NZ": "new zealand", "GB": "united kingdom",
+        "DE": "germany", "SG": "singapore", "NL": "netherlands",
+        "NO": "norway", "SE": "sweden", "DK": "denmark", "IE": "ireland",
+        "CH": "switzerland", "FR": "france", "JP": "japan", "CN": "china",
+    }
+    for part in segments:
+        if part in _ISO:
+            return _ISO[part]
     if any(x in loc for x in ("UNITED STATES", " USA", "U.S.A", " U.S.")):
         return "united states"
     if any(x in loc for x in ("UNITED KINGDOM", "ENGLAND", "SCOTLAND", "WALES", " UK")):

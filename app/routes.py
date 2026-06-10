@@ -784,69 +784,122 @@ def _playwright_crawl(company_input: str) -> tuple[list[dict], str, str]:
                 )
                 return cat_count / max(len(found), 1) > 0.5
 
-            # First extraction attempt
-            raw = _extract_jobs_from_page(page)
-
-            # If we only got category/nav links, go one level deeper
-            if _looks_like_categories(raw):
-                # Find "View All Jobs" link first, then try each category
-                deeper_url = page.evaluate("""
-                    () => {
-                        // Prefer "View All Jobs" type links
-                        for (const a of document.querySelectorAll('a[href]')) {
-                            const t = a.innerText.trim().toLowerCase();
-                            if (/view all|see all|all jobs|all positions|all openings/.test(t))
-                                return a.href;
+            # ---- helper: paginated SAP SuccessFactors extractor ----
+            def _extract_successfactors(pg):
+                """Walk every SuccessFactors result page via the ?startrow= param."""
+                collected: dict[str, dict] = {}
+                base = pg.url.split("#")[0].split("?")[0]
+                # Total count from the pagination label, e.g. "Results 1 - 25 of 63"
+                try:
+                    label = pg.evaluate(
+                        "() => (document.querySelector('.paginationLabel, .srHelp') || document.body).innerText"
+                    )
+                except Exception:
+                    label = ""
+                m = re.search(r"of\s+([\d,]+)", label or "")
+                total = int(m.group(1).replace(",", "")) if m else 0
+                startrow, page_size = 0, 25
+                for _ in range(20):  # hard cap: 20 pages
+                    rows = pg.evaluate("""() => {
+                        const out = [];
+                        for (const r of document.querySelectorAll('tr.data-row')) {
+                            const a = r.querySelector('a.jobTitle-link, a[href*="/job/"]');
+                            if (!a || !a.href) continue;
+                            const loc = r.querySelector('.jobLocation, span.jobLocation, [class*="jobLocation"]');
+                            out.push({ title: a.innerText.trim(), url: a.href, location: loc ? loc.innerText.trim() : '' });
                         }
-                        return null;
-                    }
-                """)
-
-                if deeper_url:
+                        return out;
+                    }""")
+                    if not rows:
+                        break
+                    for j in rows:
+                        collected[j["url"]] = j
+                    startrow += page_size
+                    if (total and startrow >= total) or len(collected) >= 500:
+                        break
                     try:
-                        page.goto(deeper_url, wait_until="domcontentloaded", timeout=20000)
+                        pg.goto(f"{base}?q=&startrow={startrow}", wait_until="domcontentloaded", timeout=15000)
                         try:
-                            page.wait_for_load_state("networkidle", timeout=12000)
+                            pg.wait_for_load_state("networkidle", timeout=8000)
                         except Exception:
                             pass
-                        page.wait_for_timeout(3000)
-                        for _ in range(4):
-                            page.evaluate("window.scrollBy(0, window.innerHeight)")
-                            page.wait_for_timeout(700)
-                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        page.wait_for_timeout(2000)
-                        raw = _extract_jobs_from_page(page)
+                        pg.wait_for_timeout(1500)
+                    except Exception:
+                        break
+                return list(collected.values())
+
+            # First extraction attempt on the landing page
+            raw = _extract_jobs_from_page(page)
+
+            # ---- find a dedicated "all jobs / search results" page ----
+            jobs_page_url = page.evaluate("""() => {
+                const links = [...document.querySelectorAll('a[href]')];
+                // 1. explicit "view all jobs" style text
+                for (const a of links) {
+                    const t = a.innerText.trim().toLowerCase();
+                    if (/view all|see all|all jobs|all positions|all openings|search jobs/.test(t)) return a.href;
+                }
+                // 2. SuccessFactors / common search-results URL pattern
+                for (const a of links) {
+                    if (/\\/search(\\/|\\?|$)/i.test(a.href)) return a.href;
+                }
+                return null;
+            }""")
+
+            # A dedicated "all jobs / search" page is authoritative — always follow it
+            # and keep whichever source yields more real listings.
+            if jobs_page_url:
+                try:
+                    page.goto(jobs_page_url, wait_until="domcontentloaded", timeout=20000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=12000)
                     except Exception:
                         pass
+                    page.wait_for_timeout(2500)
+                    is_sf = page.evaluate(
+                        "() => !!document.querySelector('a.jobTitle-link, tr.data-row')"
+                    )
+                    if is_sf:
+                        deep = _extract_successfactors(page)
+                    else:
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        page.wait_for_timeout(1500)
+                        deep = _extract_jobs_from_page(page)
+                    if deep and (len(deep) > len(raw) or _looks_like_categories(raw)):
+                        raw = deep
+                except Exception:
+                    pass
 
-                # If still categories (or no "View All"), scrape each category URL
-                if _looks_like_categories(raw) or not raw:
-                    category_urls = [j["url"] for j in (raw or [])
-                                     if j["url"] != page.url and not j["url"].endswith("#")][:6]
-                    all_deep = []
-                    for cat_url in category_urls:
+            # Last resort: if still only categories, scrape each category page
+            if _looks_like_categories(raw) or not raw:
+                category_urls = [j["url"] for j in (raw or [])
+                                 if j["url"] != page.url and not j["url"].endswith("#")][:6]
+                all_deep = []
+                for cat_url in category_urls:
+                    try:
+                        page.goto(cat_url, wait_until="domcontentloaded", timeout=15000)
                         try:
-                            page.goto(cat_url, wait_until="domcontentloaded", timeout=15000)
-                            try:
-                                page.wait_for_load_state("networkidle", timeout=10000)
-                            except Exception:
-                                pass
-                            page.wait_for_timeout(2500)
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(2500)
+                        if page.evaluate("() => !!document.querySelector('a.jobTitle-link, tr.data-row')"):
+                            found = _extract_successfactors(page)
+                        else:
                             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                             page.wait_for_timeout(1200)
                             found = _extract_jobs_from_page(page)
-                            if not _looks_like_categories(found):
-                                all_deep.extend(found)
-                        except Exception:
-                            continue
-                    if all_deep:
-                        # Deduplicate across categories
-                        seen_urls = set()
-                        raw = []
-                        for j in all_deep:
-                            if j["url"] not in seen_urls:
-                                seen_urls.add(j["url"])
-                                raw.append(j)
+                        if not _looks_like_categories(found):
+                            all_deep.extend(found)
+                    except Exception:
+                        continue
+                if all_deep:
+                    seen_urls = set()
+                    raw = []
+                    for j in all_deep:
+                        if j["url"] not in seen_urls:
+                            seen_urls.add(j["url"])
+                            raw.append(j)
 
             browser.close()
             if raw:
@@ -981,11 +1034,13 @@ async def scrape_company_jobs(request: Request):
                 if existing is not None and existing.removed:
                     continue
                 cat = _cat(title, "")
+                loc = item.get("location", "")
+                from app.pipeline import _infer_country
                 if existing is None:
                     session.add(Job(
                         source="website", job_url=url, title=title,
-                        company=company_name, location=item.get("location", ""),
-                        country="", is_remote=False, description="",
+                        company=company_name, location=loc,
+                        country=_infer_country(loc, ""), is_remote=False, description="",
                         job_type="", salary_min=None, salary_max=None,
                         salary_currency="", salary_interval="",
                         date_posted=None, first_seen=now, last_seen=now,
@@ -995,6 +1050,10 @@ async def scrape_company_jobs(request: Request):
                     new_count += 1
                 else:
                     existing.last_seen = now
+                    # Backfill location/country if a previous scrape missed them
+                    if loc and not existing.location:
+                        existing.location = loc
+                        existing.country = _infer_country(loc, existing.country or "")
                 preview.append({"title": title, "location": item.get("location", ""), "url": url, "salary": ""})
 
         else:
