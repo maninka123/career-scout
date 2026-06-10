@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 from collections import Counter
@@ -64,35 +65,37 @@ def _base_ctx(session, request: Request) -> dict:
 def dashboard(request: Request):
     session = SessionLocal()
     try:
-        total = session.query(func.count(Job.id)).scalar() or 0
+        _active = Job.removed.is_(False)
+        total = session.query(func.count(Job.id)).filter(_active).scalar() or 0
         new_count = _new_jobs_count(session)
-        saved_count = session.query(func.count(Job.id)).filter(Job.status == "saved").scalar() or 0
-        applied_count = session.query(func.count(Job.id)).filter(Job.status == "applied").scalar() or 0
+        saved_count = session.query(func.count(Job.id)).filter(_active, Job.status == "saved").scalar() or 0
+        applied_count = session.query(func.count(Job.id)).filter(_active, Job.status == "applied").scalar() or 0
 
         today = datetime.now(timezone.utc).date()
         new_today = session.query(func.count(Job.id)).filter(
-            func.date(Job.first_seen) == today.isoformat()
+            _active, func.date(Job.first_seen) == today.isoformat()
         ).scalar() or 0
 
         # By source
-        by_source = {r[0]: r[1] for r in session.query(Job.source, func.count(Job.id)).group_by(Job.source).all() if r[0]}
+        by_source = {r[0]: r[1] for r in session.query(Job.source, func.count(Job.id)).filter(_active).group_by(Job.source).all() if r[0]}
 
         # By country
-        by_country = {r[0]: r[1] for r in session.query(Job.country, func.count(Job.id)).group_by(Job.country).order_by(func.count(Job.id).desc()).limit(10).all() if r[0]}
+        by_country = {r[0]: r[1] for r in session.query(Job.country, func.count(Job.id)).filter(_active).group_by(Job.country).order_by(func.count(Job.id).desc()).limit(10).all() if r[0]}
 
         # By category
-        by_category = {r[0]: r[1] for r in session.query(Job.category, func.count(Job.id)).group_by(Job.category).order_by(func.count(Job.id).desc()).limit(12).all() if r[0]}
+        by_category = {r[0]: r[1] for r in session.query(Job.category, func.count(Job.id)).filter(_active).group_by(Job.category).order_by(func.count(Job.id).desc()).limit(12).all() if r[0]}
 
         # Top companies
-        top_companies = session.query(Job.company, func.count(Job.id).label("cnt")).filter(Job.company != "").group_by(Job.company).order_by(func.count(Job.id).desc()).limit(10).all()
+        top_companies = session.query(Job.company, func.count(Job.id).label("cnt")).filter(_active, Job.company != "").group_by(Job.company).order_by(func.count(Job.id).desc()).limit(10).all()
 
         # Salary coverage
-        with_salary = session.query(func.count(Job.id)).filter(Job.salary_min.isnot(None)).scalar() or 0
+        with_salary = session.query(func.count(Job.id)).filter(_active, Job.salary_min.isnot(None)).scalar() or 0
         salary_pct = round(with_salary * 100 / total) if total else 0
 
         # Salary breakdown — convert all currencies to AUD (approximate)
         _to_aud = {"AUD": 1.0, "USD": 1.55, "GBP": 1.95, "EUR": 1.70, "CAD": 1.13, "SGD": 1.15, "NZD": 0.91, "CHF": 1.75, "SEK": 0.14, "NOK": 0.14, "DKK": 0.23}
         sal_jobs = session.query(Job).filter(
+            _active,
             Job.salary_min.isnot(None),
             Job.salary_interval == "yearly",
         ).all()
@@ -141,7 +144,7 @@ def dashboard(request: Request):
             parsed_runs.append((r, counts))
 
         # Recent new jobs
-        recent_jobs = session.query(Job).filter(Job.status == "new").order_by(Job.first_seen.desc()).limit(8).all()
+        recent_jobs = session.query(Job).filter(_active, Job.status == "new").order_by(Job.first_seen.desc()).limit(8).all()
 
         ctx = _base_ctx(session, request)
         ctx.update({
@@ -306,6 +309,46 @@ def set_notes(job_id: int, notes: str = Form(""), redirect: str = Form("/jobs"))
     finally:
         session.close()
     return RedirectResponse(redirect, status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Manual job add
+# ---------------------------------------------------------------------------
+
+@router.post("/jobs/add-manual")
+async def add_manual_job(request: Request):
+    from app.matching import get_category as _cat
+    form = await request.form()
+    title = form.get("title", "").strip()
+    company = form.get("company", "").strip()
+    url = form.get("url", "").strip()
+    location = form.get("location", "").strip()
+    if not title or not url:
+        return JSONResponse({"error": "Title and URL are required."}, status_code=400)
+    from app.pipeline import _infer_country
+    country = _infer_country(location, "")
+    now = datetime.now(timezone.utc)
+    session = SessionLocal()
+    try:
+        existing = session.query(Job).filter(Job.job_url == url).one_or_none()
+        if existing and existing.removed:
+            return JSONResponse({"error": "This listing is in your recycle bin. Restore it first."})
+        if existing:
+            return JSONResponse({"already": True, "id": existing.id, "title": existing.title})
+        cat = _cat(title, "")
+        j = Job(
+            source="manual", job_url=url, title=title, company=company,
+            location=location, country=country, is_remote=False,
+            description="", job_type="", salary_min=None, salary_max=None,
+            salary_currency="", salary_interval="", date_posted=None,
+            first_seen=now, last_seen=now, status="new",
+            category=cat, source_profile="manual", removed=False,
+        )
+        session.add(j)
+        session.commit()
+        return JSONResponse({"ok": True, "id": j.id, "title": j.title})
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -606,16 +649,19 @@ def _playwright_crawl(company_input: str) -> tuple[list[dict], str, str]:
                 browser.close()
                 return [], company_name, "Could not load the company's careers page."
 
-            # Wait for JS-rendered content
+            # Wait for JS-rendered content (SuccessFactors / Workday need extra time)
             try:
-                page.wait_for_load_state("networkidle", timeout=8000)
+                page.wait_for_load_state("networkidle", timeout=12000)
             except Exception:
                 pass
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(2500)
 
-            # Scroll to reveal lazy-loaded listings
+            # Scroll in steps to trigger lazy-loading
+            for _ in range(3):
+                page.evaluate("window.scrollBy(0, window.innerHeight)")
+                page.wait_for_timeout(600)
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(1500)
 
             # Try to get company name from page title
             try:
@@ -627,71 +673,185 @@ def _playwright_crawl(company_input: str) -> tuple[list[dict], str, str]:
             except Exception:
                 pass
 
-            raw = page.evaluate("""
-                () => {
-                    const jobs = [];
-                    const seen = new Set();
+            # ---- helper: extract real job listings from current page ----
+            def _extract_jobs_from_page(pg):
+                """Run the JS extraction on `pg` and return list of job dicts."""
+                return pg.evaluate("""
+                    () => {
+                        const jobs = [];
+                        const seen = new Set();
+                        const pageBase = window.location.href.split('#')[0].split('?')[0];
 
-                    function addJob(title, url, location) {
-                        if (!title || title.length < 5 || title.length > 180) return;
-                        if (seen.has(url)) return;
-                        seen.add(url);
-                        jobs.push({ title: title.trim(), url, location: (location || '').trim() });
-                    }
-
-                    // 1. Try structured job-listing containers
-                    const containerSelectors = [
-                        '[data-qa*="job"]', '[data-testid*="job"]', '[data-automation*="job"]',
-                        '[class*="job-item"]', '[class*="job-card"]', '[class*="job-listing"]',
-                        '[class*="opening"]', '[class*="position-item"]', '[class*="role-item"]',
-                        '[class*="vacancy"]', '[class*="requisition"]',
-                        'li[class*="job"]', 'article[class*="job"]', 'tr[class*="job"]',
-                    ];
-                    for (const sel of containerSelectors) {
-                        const els = document.querySelectorAll(sel);
-                        if (els.length < 2) continue;
-                        for (const el of els) {
-                            const link = el.querySelector('a[href]') || (el.tagName === 'A' ? el : null);
-                            if (!link) continue;
-                            const titleEl = el.querySelector(
-                                'h1,h2,h3,h4,h5,strong,[class*="title"],[class*="name"],[class*="role"]'
+                        function getLocation(el) {
+                            const loc = el.querySelector(
+                                '[class*="location"],[class*="loc"],[class*="city"],[class*="place"],' +
+                                '[data-qa*="location"],[data-testid*="location"],[class*="region"]'
                             );
-                            const title = (titleEl || link).innerText.trim();
-                            const locEl = el.querySelector(
-                                '[class*="location"],[class*="loc"],[class*="city"],[class*="place"],[data-qa*="location"],[data-testid*="location"]'
-                            );
-                            addJob(title, link.href, locEl?.innerText);
+                            return loc ? loc.innerText.trim() : '';
                         }
-                        if (jobs.length > 3) break;
-                    }
+                        function addJob(title, url, location) {
+                            const t = title.trim();
+                            if (!t || t.length < 5 || t.length > 160) return;
+                            if (seen.has(url)) return;
+                            // Skip obvious non-jobs
+                            if (/^(view all|see all|all jobs|load more|show more)$/i.test(t)) return;
+                            if (url === pageBase || url.endsWith('#') || !url.startsWith('http')) return;
+                            seen.add(url);
+                            jobs.push({ title: t, url, location: (location||'').trim() });
+                        }
 
-                    // 2. Fallback: any link whose URL looks like a job posting
-                    if (jobs.length === 0) {
-                        for (const a of document.querySelectorAll('a[href]')) {
-                            const href = a.href;
-                            const text = a.innerText.trim();
-                            const isJobUrl = /\/(job|position|opening|role|vacancy|apply|requisition|careers?\/)[\w\-]/i.test(href)
-                                || /workday\.com|icims\.com|taleo\.net|successfactors|jobvite|bamboohr|brassring/i.test(href);
-                            if (isJobUrl) {
-                                const parent = a.closest('li,div,tr,article');
-                                const locEl = parent?.querySelector('[class*="location"],[class*="loc"],[class*="city"]');
-                                addJob(text || href, href, locEl?.innerText);
+                        // Strategy 1: structured job-card containers
+                        const containerSels = [
+                            '[data-qa*="job"]','[data-testid*="job"]','[data-automation*="job"]',
+                            '[data-testid*="listing"]','[data-automation*="listing"]',
+                            '[class*="job-item"]','[class*="job-card"]','[class*="job-listing"]',
+                            '[class*="job-row"]','[class*="job-result"]','[class*="jobListItem"]',
+                            '[class*="opening-item"]','[class*="position-item"]','[class*="role-item"]',
+                            '[class*="vacancy-item"]','[class*="requisition"]','[class*="resultItem"]',
+                            '[class*="jobResultItem"]','[class*="job_preview"]',
+                            'li[class*="job"]','article[class*="job"]','tr[class*="job"]',
+                        ];
+                        for (const sel of containerSels) {
+                            const els = document.querySelectorAll(sel);
+                            if (els.length < 2) continue;
+                            const before = jobs.length;
+                            for (const el of els) {
+                                const link = el.querySelector('a[href]') || (el.tagName==='A' ? el : null);
+                                if (!link || !link.href) continue;
+                                const titleEl = el.querySelector(
+                                    'h1,h2,h3,h4,h5,strong,[class*="title"],[class*="name"],[class*="role"],[class*="position"]'
+                                );
+                                addJob((titleEl||link).innerText, link.href, getLocation(el));
+                            }
+                            if (jobs.length - before >= 3) break;
+                        }
+
+                        // Strategy 2: densest link-bearing list/grid
+                        if (jobs.length < 3) {
+                            const pageHref = window.location.href.split('#')[0];
+                            const lists = [...document.querySelectorAll('ul,ol,tbody,[class*="list"],[class*="grid"],[class*="results"]')];
+                            let best = null, bestScore = 0;
+                            for (const list of lists) {
+                                const links = [...list.querySelectorAll('a[href]')].filter(a =>
+                                    a.href && a.href !== pageHref && !a.href.endsWith('/') &&
+                                    !a.href.includes('#') && a.innerText.trim().length > 5
+                                );
+                                if (links.length > bestScore) { bestScore = links.length; best = list; }
+                            }
+                            if (best && bestScore >= 3) {
+                                for (const a of best.querySelectorAll('a[href]')) {
+                                    const parent = a.closest('li,tr,div');
+                                    addJob(a.innerText.trim(), a.href, getLocation(parent||a));
+                                }
                             }
                         }
-                    }
 
-                    // Deduplicate by normalised title
-                    const byTitle = new Map();
-                    for (const j of jobs) {
-                        const k = j.title.toLowerCase().replace(/\\s+/g,' ');
-                        if (!byTitle.has(k)) byTitle.set(k, j);
+                        // Strategy 3: URL-pattern fallback
+                        if (jobs.length < 3) {
+                            for (const a of document.querySelectorAll('a[href]')) {
+                                const href = a.href;
+                                const text = a.innerText.trim();
+                                const isJobUrl = /\\/(job|position|opening|role|vacancy|requisition)[\\/\\-\\?][\\w\\-]+/i.test(href)
+                                    || /workday\\.com|icims\\.com|taleo\\.net|successfactors|jobvite|bamboohr|brassring|smartrecruiters/i.test(href);
+                                if (isJobUrl && text) {
+                                    const parent = a.closest('li,div,tr,article');
+                                    addJob(text, href, getLocation(parent||a));
+                                }
+                            }
+                        }
+
+                        // Deduplicate by normalised title
+                        const byTitle = new Map();
+                        for (const j of jobs) {
+                            const k = j.title.toLowerCase().replace(/\\s+/g,' ');
+                            if (!byTitle.has(k)) byTitle.set(k, j);
+                        }
+                        return [...byTitle.values()].slice(0, 200);
                     }
-                    return [...byTitle.values()].slice(0, 150);
-                }
-            """)
+                """)
+
+            # ---- helper: detect if results are categories not real jobs ----
+            def _looks_like_categories(found):
+                """Return True when scraped items are clearly category/nav links, not real jobs."""
+                if not found or len(found) > 40:
+                    return False
+                # Category-like title patterns: ends with "Jobs"/"Positions", or is a pure nav phrase
+                cat_count = sum(
+                    1 for j in found
+                    if re.search(r'\bjobs$|\bpositions$|\bvacancies$|\bopportunities$', j["title"], re.I)
+                    or re.search(r'^(view all|see all|all jobs|all positions|load more|browse all|show all)$', j["title"], re.I)
+                    or re.search(r'^(engineering|technology|corporate|operations|finance|hr|it|sales|marketing)\s+jobs$', j["title"], re.I)
+                )
+                return cat_count / max(len(found), 1) > 0.5
+
+            # First extraction attempt
+            raw = _extract_jobs_from_page(page)
+
+            # If we only got category/nav links, go one level deeper
+            if _looks_like_categories(raw):
+                # Find "View All Jobs" link first, then try each category
+                deeper_url = page.evaluate("""
+                    () => {
+                        // Prefer "View All Jobs" type links
+                        for (const a of document.querySelectorAll('a[href]')) {
+                            const t = a.innerText.trim().toLowerCase();
+                            if (/view all|see all|all jobs|all positions|all openings/.test(t))
+                                return a.href;
+                        }
+                        return null;
+                    }
+                """)
+
+                if deeper_url:
+                    try:
+                        page.goto(deeper_url, wait_until="domcontentloaded", timeout=20000)
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=12000)
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(3000)
+                        for _ in range(4):
+                            page.evaluate("window.scrollBy(0, window.innerHeight)")
+                            page.wait_for_timeout(700)
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        page.wait_for_timeout(2000)
+                        raw = _extract_jobs_from_page(page)
+                    except Exception:
+                        pass
+
+                # If still categories (or no "View All"), scrape each category URL
+                if _looks_like_categories(raw) or not raw:
+                    category_urls = [j["url"] for j in (raw or [])
+                                     if j["url"] != page.url and not j["url"].endswith("#")][:6]
+                    all_deep = []
+                    for cat_url in category_urls:
+                        try:
+                            page.goto(cat_url, wait_until="domcontentloaded", timeout=15000)
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=10000)
+                            except Exception:
+                                pass
+                            page.wait_for_timeout(2500)
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            page.wait_for_timeout(1200)
+                            found = _extract_jobs_from_page(page)
+                            if not _looks_like_categories(found):
+                                all_deep.extend(found)
+                        except Exception:
+                            continue
+                    if all_deep:
+                        # Deduplicate across categories
+                        seen_urls = set()
+                        raw = []
+                        for j in all_deep:
+                            if j["url"] not in seen_urls:
+                                seen_urls.add(j["url"])
+                                raw.append(j)
 
             browser.close()
-            return raw or [], company_name, "" if raw else "No job listings found on the careers page."
+            if raw:
+                return raw[:200], company_name, ""
+            return [], company_name, "No job listings found. The site may require login or use a platform that blocks automated access."
 
     except Exception as exc:
         return [], company_name, f"Browser scrape failed: {str(exc)[:200]}"

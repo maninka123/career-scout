@@ -80,7 +80,46 @@
 {% if job.description %}
 <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
   <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-4">Job Description</div>
-  <div class="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">{{ job.description }}</div>
+  <div id="job-desc" class="prose prose-sm max-w-none text-slate-700 leading-relaxed
+    [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-1
+    [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-1
+    [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1
+    [&_p]:mb-3
+    [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ul>li]:mb-0.5
+    [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_ol>li]:mb-0.5
+    [&_strong]:font-semibold [&_em]:italic
+    [&_a]:text-indigo-600 [&_a]:underline"></div>
+  <script>
+    (function() {
+      const raw = {{ job.description | tojson }};
+      const el = document.getElementById('job-desc');
+      // If already HTML (contains tags), render directly; otherwise treat as markdown
+      if (/<[a-z][\s\S]*>/i.test(raw)) {
+        el.innerHTML = raw;
+      } else {
+        // Minimal markdown: bold, italic, bullets, headings, line breaks
+        let html = raw
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          // Headings
+          .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+          .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+          .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+          // Bold and italic
+          .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          // Bullets: lines starting with * or - (that aren't emphasis)
+          .replace(/^[*\-] (.+)$/gm, '<li>$1</li>')
+          // Wrap consecutive <li> in <ul>
+          .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+          // Paragraphs: blank lines
+          .replace(/\n{2,}/g, '</p><p>')
+          // Remaining single newlines
+          .replace(/\n/g, '<br>');
+        el.innerHTML = '<p>' + html + '</p>';
+      }
+    })();
+  </script>
 </div>
 {% endif %}
 {% endif %}

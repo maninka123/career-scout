@@ -195,6 +195,66 @@
         </template>
       </div>
     </div>
+
+    <!-- Manual add separator -->
+    <div class="mt-4 pt-4 border-t border-slate-100"
+         x-data="{ open: false, title:'', company: result?.company||'', url:'', location:'', saving:false, msg:'' }">
+      <button @click="open=!open; company=result?.company||''"
+        class="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 font-medium transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Add a listing manually
+        <span class="text-xs text-slate-400 font-normal">(if a job you found isn't in the list above)</span>
+      </button>
+
+      <div x-show="open" x-cloak class="mt-3 bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div class="col-span-2">
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1">Job Title <span class="text-red-400">*</span></label>
+            <input x-model="title" type="text" placeholder="e.g. Underground Mining Engineer"
+              class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1">Company</label>
+            <input x-model="company" type="text" placeholder="Peabody Energy"
+              class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1">Location</label>
+            <input x-model="location" type="text" placeholder="Brisbane, QLD"
+              class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          </div>
+          <div class="col-span-2">
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1">Apply URL <span class="text-red-400">*</span></label>
+            <input x-model="url" type="url" placeholder="https://jobs.peabodyenergy.com/careers/job/..."
+              class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button :disabled="saving || !title.trim() || !url.trim()"
+            @click="
+              saving=true; msg='';
+              const fd=new FormData();
+              fd.append('title',title); fd.append('company',company);
+              fd.append('url',url); fd.append('location',location);
+              fetch('/jobs/add-manual',{method:'POST',body:fd})
+                .then(r=>r.json())
+                .then(d=>{
+                  saving=false;
+                  if(d.ok) { msg='Added to your Jobs list.'; title=''; url=''; location=''; }
+                  else if(d.already) msg='Already in your list.';
+                  else msg=d.error||'Failed.';
+                })
+                .catch(()=>{saving=false;msg='Request failed.';})
+            "
+            class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+            Add to Jobs List
+          </button>
+          <span x-show="msg" x-text="msg"
+                :class="msg.includes('Added') ? 'text-emerald-600' : 'text-red-500'"
+                class="text-sm font-medium"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Permanent ATS token lists (for scheduled scraping) -->
