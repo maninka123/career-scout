@@ -26,6 +26,10 @@ templates.env.filters["from_json"] = lambda s: json.loads(s or "[]")
 
 PAGE_SIZE = 40
 
+# In-memory cache of scrape results awaiting user selection (scrape_id -> entry).
+# Personal single-user app, so a module global is fine.
+_SCRAPE_CACHE: dict[str, dict] = {}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -946,10 +950,38 @@ def discover_company(company: str = ""):
     return JSONResponse({"error": f"Could not find a supported ATS for '{company}'. They may use Workday, Taleo, or another platform."})
 
 
+def _fmt_salary(cur, lo, hi) -> str:
+    if not lo:
+        return ""
+    return f"{cur or '$'}{int(lo):,}" + (f"–{int(hi):,}" if hi else "")
+
+
+def _cache_scrape(company_name: str, platform: str, jobs: dict) -> str:
+    """Store scraped jobs server-side (keyed by a scrape id) so the user can
+    later choose which ones to import. Keeps only the most recent few scrapes."""
+    import uuid
+    sid = uuid.uuid4().hex[:12]
+    _SCRAPE_CACHE[sid] = {
+        "company": company_name,
+        "platform": platform,
+        "jobs": jobs,  # {url: jobdict}
+        "ts": datetime.now(timezone.utc),
+    }
+    # Evict oldest if cache grows beyond 20 scrapes
+    if len(_SCRAPE_CACHE) > 20:
+        oldest = sorted(_SCRAPE_CACHE.items(), key=lambda kv: kv[1]["ts"])[:-20]
+        for k, _ in oldest:
+            _SCRAPE_CACHE.pop(k, None)
+    return sid
+
+
 @router.post("/scrape/company")
 async def scrape_company_jobs(request: Request):
+    """Scrape a company's jobs and return them for review — does NOT save them.
+    The user picks which to import via /scrape/company/add."""
     import asyncio
     from app.matching import get_category as _cat
+    from app.pipeline import _infer_country
 
     form = await request.form()
     company_input = form.get("company", "").strip()
@@ -975,91 +1007,145 @@ async def scrape_company_jobs(request: Request):
         if ats:
             platform, slug = ats["platform"], ats["slug"]
 
+    # Build the candidate job list (nothing is written to the DB here)
+    cache_jobs: dict = {}   # url -> full job dict
+    source_label = "Website"
+
+    if platform and slug:
+        from app.scrapers.ats_source import scrape_tokens
+        kwargs: dict = {"greenhouse": [], "lever": [], "ashby": [], "smartrecruiters": []}
+        kwargs[platform] = [slug]
+        try:
+            raw_jobs = await loop.run_in_executor(None, lambda: scrape_tokens(**kwargs))
+        except Exception as exc:
+            return JSONResponse({"error": f"ATS scraping failed: {exc}"})
+        source_label = platform.title()
+        for nj in raw_jobs:
+            if not nj.job_url:
+                continue
+            cache_jobs[nj.job_url] = {
+                "source": nj.source, "job_url": nj.job_url, "title": nj.title or "Untitled",
+                "company": nj.company or slug, "location": nj.location or "",
+                "country": nj.country or "", "is_remote": bool(nj.is_remote),
+                "description": nj.description or "", "job_type": nj.job_type or "",
+                "salary_min": nj.salary_min, "salary_max": nj.salary_max,
+                "salary_currency": nj.salary_currency or "", "salary_interval": nj.salary_interval or "",
+                "date_posted": nj.date_posted, "category": _cat(nj.title or "", nj.description or ""),
+                "source_profile": f"company:{slug}",
+                "salary_label": _fmt_salary(nj.salary_currency, nj.salary_min, nj.salary_max),
+            }
+
+    elif raw_list:
+        for item in raw_list:
+            url = item.get("url", "")
+            title = (item.get("title") or "").strip()
+            if not url or not title:
+                continue
+            loc = item.get("location", "")
+            cache_jobs[url] = {
+                "source": "website", "job_url": url, "title": title,
+                "company": company_name, "location": loc,
+                "country": _infer_country(loc, ""), "is_remote": False,
+                "description": "", "job_type": "",
+                "salary_min": None, "salary_max": None,
+                "salary_currency": "", "salary_interval": "",
+                "date_posted": None, "category": _cat(title, ""),
+                "source_profile": f"company:{company_name}",
+                "salary_label": "",
+            }
+
+    else:
+        err = crawl_error or f"No jobs found for '{company_input}'. The site may require login or use an unsupported platform."
+        return JSONResponse({"error": err})
+
+    if not cache_jobs:
+        return JSONResponse({"error": f"No job listings found for '{company_input}'."})
+
+    # Flag which jobs are already in the list / recycle bin
+    session = SessionLocal()
+    try:
+        urls = list(cache_jobs.keys())
+        existing_map = {}
+        for chunk_start in range(0, len(urls), 500):
+            chunk = urls[chunk_start:chunk_start + 500]
+            for jid_url, removed in session.query(Job.job_url, Job.removed).filter(Job.job_url.in_(chunk)).all():
+                existing_map[jid_url] = removed
+    finally:
+        session.close()
+
+    preview = []
+    new_n = 0
+    for url, jd in cache_jobs.items():
+        if url in existing_map:
+            state = "in_bin" if existing_map[url] else "in_list"
+        else:
+            state = "new"
+            new_n += 1
+        preview.append({
+            "url": url, "title": jd["title"], "location": jd["location"],
+            "salary": jd["salary_label"], "state": state,
+        })
+
+    sid = _cache_scrape(company_name, source_label, cache_jobs)
+
+    return JSONResponse({
+        "scrape_id": sid,
+        "platform": source_label,
+        "slug": slug or company_name,
+        "company": company_name,
+        "total": len(preview),
+        "new": new_n,
+        "jobs": preview,
+    })
+
+
+@router.post("/scrape/company/add")
+async def add_scraped_jobs(request: Request):
+    """Import the jobs the user selected from a previous scrape."""
+    form = await request.form()
+    sid = form.get("scrape_id", "")
+    add_all = form.get("all", "") in ("1", "true", "yes")
+    urls_raw = form.get("urls", "")
+
+    entry = _SCRAPE_CACHE.get(sid)
+    if not entry:
+        return JSONResponse({"error": "This scrape has expired. Please scrape the company again."}, status_code=410)
+
+    cache_jobs = entry["jobs"]
+    if add_all:
+        wanted = list(cache_jobs.keys())
+    else:
+        try:
+            wanted = json.loads(urls_raw) if urls_raw else []
+        except json.JSONDecodeError:
+            wanted = []
+    if not wanted:
+        return JSONResponse({"error": "No jobs selected."}, status_code=400)
+
     now = datetime.now(timezone.utc)
     session = SessionLocal()
-    new_count = 0
-    preview = []
-    source_label = "website"
-
+    added = 0
+    skipped = 0
     try:
-        if platform and slug:
-            # Use fast ATS API (reliable, gets descriptions + salaries)
-            from app.scrapers.ats_source import scrape_tokens
-            kwargs: dict = {"greenhouse": [], "lever": [], "ashby": [], "smartrecruiters": []}
-            kwargs[platform] = [slug]
-            try:
-                raw_jobs = await loop.run_in_executor(None, lambda: scrape_tokens(**kwargs))
-            except Exception as exc:
-                return JSONResponse({"error": f"ATS scraping failed: {exc}"})
-
-            source_label = platform.title()
-            for nj in raw_jobs:
-                existing = session.query(Job).filter(Job.job_url == nj.job_url).one_or_none()
-                if existing is not None and existing.removed:
-                    continue
-                cat = _cat(nj.title or "", nj.description or "")
-                if existing is None:
-                    session.add(Job(
-                        source=nj.source, job_url=nj.job_url, title=nj.title or "",
-                        company=nj.company or slug, location=nj.location or "",
-                        country=nj.country or "", is_remote=nj.is_remote or False,
-                        description=nj.description or "", job_type=nj.job_type or "",
-                        salary_min=nj.salary_min, salary_max=nj.salary_max,
-                        salary_currency=nj.salary_currency or "", salary_interval=nj.salary_interval or "",
-                        date_posted=nj.date_posted, first_seen=now, last_seen=now,
-                        status="new", category=cat, source_profile=f"company:{slug}", removed=False,
-                    ))
-                    new_count += 1
-                else:
-                    existing.last_seen = now
-                preview.append({
-                    "title": nj.title or "Untitled",
-                    "location": nj.location or "",
-                    "url": nj.job_url,
-                    "salary": (
-                        f"{nj.salary_currency or '$'}{int(nj.salary_min):,}"
-                        + (f"–{int(nj.salary_max):,}" if nj.salary_max else "")
-                    ) if nj.salary_min else "",
-                })
-
-        elif raw_list:
-            # Playwright-extracted jobs (no ATS — custom career page)
-            source_label = "Website"
-            for item in raw_list:
-                url = item.get("url", "")
-                title = item.get("title", "").strip()
-                if not url or not title:
-                    continue
-                existing = session.query(Job).filter(Job.job_url == url).one_or_none()
-                if existing is not None and existing.removed:
-                    continue
-                cat = _cat(title, "")
-                loc = item.get("location", "")
-                from app.pipeline import _infer_country
-                if existing is None:
-                    session.add(Job(
-                        source="website", job_url=url, title=title,
-                        company=company_name, location=loc,
-                        country=_infer_country(loc, ""), is_remote=False, description="",
-                        job_type="", salary_min=None, salary_max=None,
-                        salary_currency="", salary_interval="",
-                        date_posted=None, first_seen=now, last_seen=now,
-                        status="new", category=cat,
-                        source_profile=f"company:{company_name}", removed=False,
-                    ))
-                    new_count += 1
-                else:
-                    existing.last_seen = now
-                    # Backfill location/country if a previous scrape missed them
-                    if loc and not existing.location:
-                        existing.location = loc
-                        existing.country = _infer_country(loc, existing.country or "")
-                preview.append({"title": title, "location": item.get("location", ""), "url": url, "salary": ""})
-
-        else:
-            err = crawl_error or f"No jobs found for '{company_input}'. The site may require login or use an unsupported platform."
-            return JSONResponse({"error": err})
-
+        for url in wanted:
+            jd = cache_jobs.get(url)
+            if not jd:
+                continue
+            existing = session.query(Job).filter(Job.job_url == url).one_or_none()
+            if existing is not None:
+                skipped += 1
+                continue
+            session.add(Job(
+                source=jd["source"], job_url=jd["job_url"], title=jd["title"],
+                company=jd["company"], location=jd["location"], country=jd["country"],
+                is_remote=jd["is_remote"], description=jd["description"], job_type=jd["job_type"],
+                salary_min=jd["salary_min"], salary_max=jd["salary_max"],
+                salary_currency=jd["salary_currency"], salary_interval=jd["salary_interval"],
+                date_posted=jd["date_posted"], first_seen=now, last_seen=now,
+                status="new", category=jd["category"], source_profile=jd["source_profile"],
+                removed=False,
+            ))
+            added += 1
         session.commit()
     except Exception as exc:
         session.rollback()
@@ -1067,14 +1153,7 @@ async def scrape_company_jobs(request: Request):
     finally:
         session.close()
 
-    return JSONResponse({
-        "platform": source_label,
-        "slug": slug or company_name,
-        "company": company_name,
-        "total": len(preview),
-        "new": new_count,
-        "jobs": preview,
-    })
+    return JSONResponse({"added": added, "skipped": skipped})
 
 
 # ---------------------------------------------------------------------------
