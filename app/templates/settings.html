@@ -123,9 +123,15 @@
       }
     }">
 
-    <div class="text-sm font-semibold text-slate-700 mb-1">Scrape a Company Directly</div>
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-sm font-semibold text-slate-700">Scrape a Company</span>
+      <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        One-time
+      </span>
+    </div>
     <div class="text-xs text-slate-500 mb-4">
-      Enter any company name or website — we visit their careers page, detect the platform, and list every open role. Nothing is saved until you pick which jobs to add. Works with Greenhouse, Lever, Ashby, SmartRecruiters, and most custom career pages.
+      Look up any company <strong>right now</strong>, review the open roles, and pick which to add. Nothing is saved until you choose. This runs once when you click — it does not repeat on its own. Works with Greenhouse, Lever, Ashby, SmartRecruiters, and most custom career pages.
     </div>
 
     <!-- Input row -->
@@ -333,10 +339,18 @@
 
   <!-- Permanent ATS token lists (for scheduled scraping) -->
   <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-    <div class="text-sm font-semibold text-slate-700 mb-1">Scheduled Company Boards</div>
-    <div class="text-xs text-slate-500 mb-4">
-      These companies are scraped automatically on every scheduled run. Add slugs here to keep them updated continuously.
-      Use "Scrape a Company" above to find and import a company once without adding it here.
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-sm font-semibold text-slate-700">Always-On Company Watchlist</span>
+      <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        Auto-updates
+      </span>
+    </div>
+    <div class="text-xs text-slate-500 mb-1">
+      A permanent watchlist, separate from the one-time scraper above. Companies listed here are <strong>re-scraped automatically on every scheduled run</strong>, so their new postings appear on their own — no manual scraping needed. These also power the <span class="font-mono text-slate-600">use ATS</span> option on Search Profiles.
+    </div>
+    <div class="text-xs text-slate-400 mb-4">
+      Use this for companies you want to track long-term. For a quick one-off look, use “Scrape a Company” above instead.
     </div>
     {% for provider, label, url_pattern, hint_companies, raw_val in [
       ('greenhouse', 'Greenhouse', 'boards.greenhouse.io/SLUG', 'Boston Dynamics, Waymo, Zoox, Nuro, Shield AI, Skydio', ats_greenhouse),
