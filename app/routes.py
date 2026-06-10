@@ -498,6 +498,15 @@ def scrape_now():
     return RedirectResponse("/", status_code=303)
 
 
+@router.post("/maintenance/recheck-matches")
+def recheck_matches():
+    """Re-filter existing profile jobs against current matching rules; off-target
+    ones go to the recycle bin."""
+    from app.pipeline import recheck_profile_matches
+    moved = recheck_profile_matches()
+    return RedirectResponse(f"/settings?cleaned={moved}", status_code=303)
+
+
 @router.post("/scrape/start")
 def scrape_start():
     """Kick off a scrape and return immediately (for the async progress button)."""
@@ -1252,7 +1261,7 @@ async def add_scraped_jobs(request: Request):
 # ---------------------------------------------------------------------------
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
+def settings_page(request: Request, cleaned: int | None = None):
     session = SessionLocal()
     try:
         def gs(key, default=""):
@@ -1266,6 +1275,7 @@ def settings_page(request: Request):
             "ats_lever": gs("ats_lever", "[]"),
             "ats_ashby": gs("ats_ashby", "[]"),
             "ats_smartrecruiters": gs("ats_smartrecruiters", "[]"),
+            "cleaned": cleaned,
         })
         return templates.TemplateResponse("settings.html", ctx)
     finally:

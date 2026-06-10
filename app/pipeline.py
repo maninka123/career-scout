@@ -72,6 +72,42 @@ def _infer_country(location: str, fallback: str = "") -> str:
     return fallback
 
 
+def recheck_profile_matches() -> int:
+    """Re-evaluate every profile-sourced job against its profile's keywords and
+    move ones that no longer match into the recycle bin (recoverable).
+
+    Used to clean up jobs imported before a matching-rules change. Returns the
+    number of jobs moved to the bin.
+    """
+    from app.matching import matches as _matches
+
+    session = SessionLocal()
+    try:
+        profiles = {p.name: p for p in session.query(SearchProfile).all()}
+
+        def _kwargs(p):
+            return (
+                json.loads(p.match_any or "[]") + json.loads(p.roles or "[]"),
+                json.loads(p.match_at_least_one or "[]"),
+                json.loads(p.exclude or "[]"),
+            )
+
+        moved = 0
+        jobs = session.query(Job).filter(Job.removed.is_(False)).all()
+        for j in jobs:
+            p = profiles.get(j.source_profile)
+            if not p:  # config / ats / manual / company jobs — leave untouched
+                continue
+            ma, m1, ex = _kwargs(p)
+            if not _matches(j.title or "", j.description or "", ma, m1, ex):
+                j.removed = True
+                moved += 1
+        session.commit()
+        return moved
+    finally:
+        session.close()
+
+
 def is_running() -> bool:
     return _run_lock.locked()
 

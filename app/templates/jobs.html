@@ -72,14 +72,35 @@
   </div>
 </form>
 
-<p class="text-sm text-slate-500 mb-4 font-medium">{{ total }} job{{ 's' if total != 1 }}</p>
+{% set country_color = {
+  'australia': 'amber', 'united states': 'blue', 'united kingdom': 'rose',
+  'canada': 'red', 'germany': 'yellow', 'singapore': 'pink',
+  'new zealand': 'sky', 'sweden': 'cyan', 'norway': 'indigo',
+  'netherlands': 'orange', 'switzerland': 'red', 'ireland': 'green', 'france': 'violet'
+} %}
+
+<div class="flex items-center justify-between mb-4 gap-4 flex-wrap">
+  <p class="text-sm text-slate-500 font-medium">{{ total }} job{{ 's' if total != 1 }}</p>
+  <!-- Country colour legend -->
+  <div class="flex items-center gap-3 flex-wrap text-xs text-slate-500">
+    {% for c in countries %}
+    {% if c in country_color %}
+    <span class="inline-flex items-center gap-1">
+      <span class="w-2.5 h-2.5 rounded-full bg-{{ country_color[c] }}-400"></span>
+      <span class="capitalize">{{ c }}</span>
+    </span>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
 
 <!-- Job cards -->
 <div class="space-y-3">
   {% for job in jobs %}
   {% set is_profile_match = job.source_profile in active_profile_names %}
   {% set status_colors = {'new': 'bg-indigo-50 text-indigo-700', 'saved': 'bg-amber-50 text-amber-700', 'applied': 'bg-emerald-50 text-emerald-700', 'hidden': 'bg-slate-100 text-slate-500'} %}
-  <div class="bg-white rounded-2xl border {% if is_profile_match %}border-indigo-200 shadow-md{% else %}border-slate-100 shadow-sm{% endif %} p-4 hover:shadow-md transition-shadow">
+  {% set ccol = country_color.get(job.country, '') %}
+  <div class="bg-white rounded-2xl border-2 {% if ccol %}border-{{ ccol }}-400{% else %}border-slate-200{% endif %} {% if is_profile_match %}shadow-md{% else %}shadow-sm{% endif %} p-4 hover:shadow-md transition-shadow">
     {% if is_profile_match %}
     <div class="flex items-center gap-1.5 mb-2">
       <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
@@ -96,7 +117,12 @@
         <div class="text-sm text-slate-500 mb-2">
           <span class="font-medium text-slate-700">{{ job.company or 'Unknown' }}</span>
           {% if job.location %} · {{ job.location }}{% endif %}
-          {% if job.country %} · <span class="uppercase text-xs">{{ job.country }}</span>{% endif %}
+          {% if job.country %}
+          · <span class="inline-flex items-center gap-1 align-middle">
+              <span class="w-2 h-2 rounded-full {% if ccol %}bg-{{ ccol }}-400{% else %}bg-slate-300{% endif %}"></span>
+              <span class="uppercase text-xs font-semibold {% if ccol %}text-{{ ccol }}-700{% else %}text-slate-500{% endif %}">{{ job.country }}</span>
+            </span>
+          {% endif %}
         </div>
         <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
           <span class="bg-slate-100 px-2 py-0.5 rounded-full">{{ job.source }}</span>
